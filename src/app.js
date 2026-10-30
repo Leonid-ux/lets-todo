@@ -1,7 +1,9 @@
 (() => {
   const $ = id => document.getElementById(id);
   const storageKey = 'lets-todo.tasks.v1';
+  const profileKey = 'lets-todo.profile.v1';
   let tasks = JSON.parse(localStorage.getItem(storageKey) || '[]');
+  let profile = (() => { try { const value = JSON.parse(localStorage.getItem(profileKey) || '[]'); return Array.isArray(value) && value[0] ? value[0] : { id: 'profile', name: 'Мой профиль', emoji: '🙂' }; } catch (_) { return { id: 'profile', name: 'Мой профиль', emoji: '🙂' }; } })();
   let view = 'active';
   let dueTaskId = null;
   let openCreatedTask = false;
@@ -39,10 +41,21 @@
     task.completed = completed; task.completedAt = completed ? Date.now() : null; save(); render(); if (completed) scheduleCompletionRender(task);
   };
   const monthNames = { января: 0, январь: 0, февраля: 1, февраль: 1, марта: 2, март: 2, апреля: 3, апрель: 3, мая: 4, май: 4, июня: 5, июнь: 5, июля: 6, июль: 6, августа: 7, август: 7, сентября: 8, сентябрь: 8, октября: 9, октябрь: 9, ноября: 10, ноябрь: 10, декабря: 11, декабрь: 11 };
-  const weekDays = { воскресенье: 0, понедельник: 1, вторник: 2, среда: 3, среду: 3, четверг: 4, пятница: 5, пятницу: 5, суббота: 6, субботу: 6 };
+  const weekDays = {
+    воскресенье: 0, воскресенья: 0, воскресенью: 0, воскресеньем: 0,
+    понедельник: 1, понедельника: 1, понедельнику: 1, понедельником: 1, понедельнике: 1,
+    вторник: 2, вторника: 2, вторнику: 2, вторником: 2, вторнике: 2,
+    среда: 3, среды: 3, среде: 3, среду: 3, средой: 3, средою: 3,
+    четверг: 4, четверга: 4, четвергу: 4, четвергом: 4, четверге: 4,
+    пятница: 5, пятницы: 5, пятнице: 5, пятницу: 5, пятницей: 5, пятницею: 5,
+    суббота: 6, субботы: 6, субботе: 6, субботу: 6, субботой: 6, субботою: 6,
+  };
   const toIsoDate = date => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
   const formatTaskDate = value => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date(`${value}T12:00:00`));
-  const weekdayTokenMap = { понедельник: 1, вторник: 2, среда: 3, среду: 3, четверг: 4, пятница: 5, пятницу: 5, суббота: 6, субботу: 6, воскресенье: 0 };
+  const weekdayTokenMap = weekDays;
+  const weekdayTokenSource = Object.keys(weekdayTokenMap).sort((left, right) => right.length - left.length).join('|');
+  const weekdayTokenPattern = new RegExp(`(?:${weekdayTokenSource})(?![а-яё])`, 'gi');
+  const nextWeekdayPattern = new RegExp(`(?:(?:в|к|до|на)\\s+)?(?:(?:следующ|будущ)(?:ий|ая|ую|ей|ем)\\s+)?(${weekdayTokenSource})(?![а-яё])`, 'i');
   const nextWeekday = (from, weekdays) => { const result = new Date(from); for (let offset = 0; offset < 7; offset += 1) { const candidate = new Date(from); candidate.setDate(candidate.getDate() + offset); if (weekdays.includes(candidate.getDay())) return candidate; } return result; };
   function parseRecurrence(lower, base) {
     if (/каждый будний день|по будням/i.test(lower)) return { rule: { type: 'weekly', weekdays: [1,2,3,4,5], label: 'По будням' }, phrase: /каждый будний день|по будням/i };
@@ -51,15 +64,31 @@
     if (interval) return { rule: { type: /недел/i.test(interval[2]) ? 'intervalWeeks' : 'intervalDays', interval: Number(interval[1]), label: interval[0] }, phrase: new RegExp(interval[0], 'i') };
     if (/каждую неделю|еженедельно/i.test(lower)) return { rule: { type: 'weekly', weekdays: [base.getDay()], label: 'Каждую неделю' }, phrase: /каждую неделю|еженедельно/i };
     if (/каждый месяц|ежемесячно/i.test(lower)) return { rule: { type: 'monthly', day: base.getDate(), label: 'Каждый месяц' }, phrase: /каждый месяц|ежемесячно/i };
-    const weekly = lower.match(/кажд(?:ый|ую)\s+((?:понедельник|вторник|среду?|четверг|пятницу?|субботу?|воскресенье)(?:\s*(?:и|,)\s*(?:понедельник|вторник|среду?|четверг|пятницу?|субботу?|воскресенье))*)/i);
-    if (weekly) { const weekdays = [...weekly[1].matchAll(/понедельник|вторник|среду?|четверг|пятницу?|субботу?|воскресенье/gi)].map(match => weekdayTokenMap[match[0]]).filter(day => day !== undefined); if (weekdays.length) return { rule: { type: 'weekly', weekdays, label: weekly[0] }, phrase: new RegExp(weekly[0], 'i') }; }
+    const weekly = lower.match(new RegExp(`кажд(?:ый|ую)\\s+((?:${weekdayTokenSource})(?:\\s*(?:и|,)\\s*(?:${weekdayTokenSource}))*)`, 'i'));
+    if (weekly) { const weekdays = [...weekly[1].matchAll(weekdayTokenPattern)].map(match => weekdayTokenMap[match[0]]).filter(day => day !== undefined); if (weekdays.length) return { rule: { type: 'weekly', weekdays, label: weekly[0] }, phrase: new RegExp(weekly[0], 'i') }; }
     return null;
   }
   function firstRepeatDate(rule, base) { if (rule.type === 'weekly') return nextWeekday(base, rule.weekdays); return new Date(base); }
   function nextRepeatDate(task) { const current = new Date(`${task.dueDate || today()}T12:00:00`); const rule = task.recurrence; if (!rule) return current; if (rule.type === 'daily') current.setDate(current.getDate() + 1); else if (rule.type === 'weekly') { current.setDate(current.getDate() + 1); return nextWeekday(current, rule.weekdays); } else if (rule.type === 'monthly') current.setMonth(current.getMonth() + 1, rule.day || current.getDate()); else if (rule.type === 'intervalWeeks') current.setDate(current.getDate() + 7 * (rule.interval || 1)); else current.setDate(current.getDate() + (rule.interval || 1)); return current; }
+  function parseTaskMetadata(raw) {
+    let title = raw;
+    let priority = null;
+    const priorities = [
+      { value: 'not-urgent', pattern: /не\s+срочно(?![а-яё])/i },
+      { value: 'urgent', pattern: /срочно(?![а-яё])/i },
+      { value: 'important', pattern: /важно(?![а-яё])/i },
+    ];
+    for (const item of priorities) {
+      if (item.pattern.test(title)) { priority ||= item.value; title = title.replace(item.pattern, ''); }
+    }
+    const tags = [...title.matchAll(/(?:^|\s)#([\p{L}\p{N}][\p{L}\p{N}_-]*)/gu)].map(match => match[1].toLocaleLowerCase('ru-RU'));
+    title = title.replace(/(?:^|\s)#[\p{L}\p{N}][\p{L}\p{N}_-]*/gu, ' ');
+    return { title: title.replace(/\s{2,}/g, ' ').trim(), priority, tags: [...new Set(tags)] };
+  }
   function parseNaturalDate(raw) {
     const text = raw.trim();
     const lower = text.toLocaleLowerCase('ru-RU');
+    const metadata = parseTaskMetadata(raw);
     const base = new Date(); base.setHours(12, 0, 0, 0);
     let date = null; let phrase = null; let time = null; let timePhrase = null; let endTime = null; let rangePhrase = null;
     const recurrence = parseRecurrence(lower, base);
@@ -71,11 +100,14 @@
     for (const [pattern, offset] of relative) {
       if (pattern.test(lower)) { date = new Date(base); date.setDate(date.getDate() + offset); phrase = pattern; break; }
     }
-    if (!date && /на следующей неделе/i.test(lower)) {
-      date = new Date(base); date.setDate(date.getDate() + ((8 - date.getDay()) % 7 || 7)); phrase = /на следующей неделе/i;
+    const nextWeekMatch = lower.match(/(?:на\s+)?(?:следующ|будущ)(?:ей|ую)\s+недел[ею]|через\s+неделю/i);
+    if (!date && nextWeekMatch) {
+      date = new Date(base);
+      date.setDate(date.getDate() + (/через/i.test(nextWeekMatch[0]) ? 7 : ((8 - date.getDay()) % 7 || 7)));
+      phrase = new RegExp(nextWeekMatch[0], 'i');
     }
     if (!date) {
-      const weekdayMatch = lower.match(/(?:в\s+)?(?:следующий\s+|следующую\s+)?(воскресенье|понедельник|вторник|среду?|четверг|пятницу?|субботу?)/i);
+      const weekdayMatch = lower.match(nextWeekdayPattern);
       if (weekdayMatch) {
         const day = weekDays[weekdayMatch[1]];
         if (day !== undefined) { date = new Date(base); let delta = (day - date.getDay() + 7) % 7; if (delta === 0 || /следующ/i.test(weekdayMatch[0])) delta += 7; date.setDate(date.getDate() + delta); phrase = new RegExp(weekdayMatch[0], 'i'); }
@@ -101,39 +133,38 @@
     if (recurrence) date = firstRepeatDate(recurrence.rule, date || base);
     const rangeMatch = lower.match(/с\s+((?:[01]?\d|2[0-3]):[0-5]\d)\s+до\s+((?:[01]?\d|2[0-3]):[0-5]\d)/i);
     if (rangeMatch) { time = rangeMatch[1]; endTime = rangeMatch[2]; rangePhrase = new RegExp(rangeMatch[0], 'i'); if (!date) date = new Date(base); }
-    if (!date) return { title: raw, dueDate: null, dueTime: null };
-    let title = raw;
+    if (!date) return { title: metadata.title, dueDate: null, dueTime: null, priority: metadata.priority, tags: metadata.tags };
+    let title = metadata.title;
     if (recurrence?.phrase) title = title.replace(recurrence.phrase, '');
     if (phrase) title = title.replace(phrase, '');
     if (rangePhrase) title = title.replace(rangePhrase, '');
     if (timePhrase) title = title.replace(timePhrase, '');
-    return { title: title.replace(/\s{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').trim(), dueDate: toIsoDate(date), dueTime: time, endTime, recurrence: recurrence?.rule || null };
+    return { title: title.replace(/\s{2,}/g, ' ').replace(/\s+([,.!?])/g, '$1').trim(), dueDate: toIsoDate(date), dueTime: time, endTime, recurrence: recurrence?.rule || null, priority: metadata.priority, tags: metadata.tags };
   }
   // Исправляет задачи, добавленные до поддержки русских дат в свободном тексте.
   let repaired = false;
   tasks.forEach(task => {
     if (!Array.isArray(task.subtasks)) { task.subtasks = []; repaired = true; }
     if (task.dueTime && task.reminderMinutes === undefined) { task.reminderMinutes = 10; repaired = true; }
-    if (task.dueDate) return;
     const parsed = parseNaturalDate(task.title || '');
-    if (!parsed.dueDate) return;
-    task.title = parsed.title || task.title;
-    task.dueDate = parsed.dueDate;
-    task.dueTime = parsed.dueTime;
-    repaired = true;
+    if (!task.dueDate && parsed.dueDate) { task.title = parsed.title || task.title; task.dueDate = parsed.dueDate; task.dueTime = parsed.dueTime; repaired = true; }
+    if (task.priority === undefined && parsed.priority) { task.priority = parsed.priority; task.title = parsed.title || task.title; repaired = true; }
+    if (!Array.isArray(task.tags)) { task.tags = parsed.tags; task.title = parsed.title || task.title; repaired = true; }
   });
   if (repaired) save();
   const composer = $('task-title');
   const quickComposer = $('quick-task-title');
   const composerValue = target => [...target.childNodes].map(node => node.nodeType === Node.ELEMENT_NODE && node.dataset.raw ? node.dataset.raw : node.textContent).join('');
-  const composerTokenPattern = /\[[^\]]+\]\(https?:\/\/[^)\s]+\)|https?:\/\/[^\s]+|каждый будний день|по будням|каждый день|ежедневно|каждую неделю|еженедельно|каждый месяц|ежемесячно|каждые?\s+\d+\s+(?:дня|дней|недели|недель)|кажд(?:ый|ую)\s+(?:понедельник|вторник|среду?|четверг|пятницу?|субботу?|воскресенье)(?:\s*(?:и|,)\s*(?:понедельник|вторник|среду?|четверг|пятницу?|субботу?|воскресенье))*|на следующей неделе|(?:в\s+)?(?:следующий\s+|следующую\s+)?(?:воскресенье|понедельник|вторник|среду?|четверг|пятницу?|субботу?)|\d{1,2}\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|послезавтра|завтра|сегодня|утром|дн[её]м|вечером|(?:[01]?\d|2[0-3]):[0-5]\d|в\s+(?:[01]?\d|2[0-3])(?::[0-5]\d)?/gi;
+  const composerTokenPattern = new RegExp(`\\[[^\\]]+\\]\\(https?:\\/\\/[^)\\s]+\\)|https?:\\/\\/[^\\s]+|#[\\p{L}\\p{N}][\\p{L}\\p{N}_-]*|не\\s+срочно|срочно|важно|каждый будний день|по будням|каждый день|ежедневно|каждую неделю|еженедельно|каждый месяц|ежемесячно|каждые?\\s+\\d+\\s+(?:дня|дней|недели|недель)|кажд(?:ый|ую)\\s+(?:${weekdayTokenSource})(?:\\s*(?:и|,)\\s*(?:${weekdayTokenSource}))*|(?:на\\s+)?(?:следующ|будущ)(?:ей|ую)\\s+недел[ею]|через\\s+неделю|(?:(?:в|к|до|на)\\s+)?(?:(?:следующ|будущ)(?:ий|ая|ую|ей|ем)\\s+)?(?:${weekdayTokenSource})(?![а-яё])|\\d{1,2}\\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)|послезавтра|завтра|сегодня|утром|дн[её]м|вечером|(?:[01]?\\d|2[0-3]):[0-5]\\d|в\\s+(?:[01]?\\d|2[0-3])(?::[0-5]\\d)?`, 'giu');
   const composerSite = raw => { try { return new URL(raw.replace(/.*\]\(/, '').replace(/\)$/, '').replace(/\\&/g, '&')).hostname.replace(/^www\./i, '').split('.')[0]; } catch (_) { return 'ссылка'; } };
   const composerChip = raw => {
     const isLink = /https?:\/\//i.test(raw);
     const isTime = /утром|дн[её]м|вечером|в\s+\d|\d{1,2}:\d{2}/i.test(raw);
-    const kind = isLink ? 'link' : isTime ? 'time' : 'date';
-    const label = isLink ? composerSite(raw) : raw;
-    const icon = isLink ? `<img src="https://www.google.com/s2/favicons?domain=${escape(label)}.com&sz=32" alt="">` : '▣';
+    const isTag = raw.startsWith('#');
+    const isPriority = /^(?:важно|срочно|не\s+срочно)$/i.test(raw);
+    const kind = isLink ? 'link' : isTag ? 'tag' : isPriority ? 'priority' : isTime ? 'time' : 'date';
+    const label = isLink ? composerSite(raw) : isTag ? raw.slice(1) : raw;
+    const icon = isLink ? `<img src="https://www.google.com/s2/favicons?domain=${escape(label)}.com&sz=32" alt="">` : isTag ? '#' : isPriority ? '!' : '▣';
     return `<span class="composer-chip composer-chip--${kind}" contenteditable="false" data-raw="${escape(raw)}">${icon}<span>${escape(label)}</span></span>`;
   };
   const renderTaskEditor = value => {
@@ -202,7 +233,7 @@
   };
   const habitEntryReached = (habit, entry) => entry.completed === true || entry.reached === true || Number(entry.value ?? entry.count ?? entry.progress ?? 0) >= Number(habit.goal ?? habit.target ?? 1);
   const habitStatistics = bounds => {
-    const habits = readStoredList(['lets-todo.habits.v1', 'lets-todo.habits', 'habits']);
+    const habits = readStoredList(['lets-todo.habits.v1', 'lets-todo.habits', 'habits']).filter(habit => !habit.private);
     let storedHistory = {};
     try { storedHistory = JSON.parse(localStorage.getItem('lets-todo.habit-history.v1') || '{}'); } catch (_) {}
     const rows = habits.map((habit, index) => {
@@ -223,7 +254,7 @@
     return { rows, reached, percent: eligible ? Math.round(reached / eligible * 100) : null };
   };
   const eventCount = bounds => {
-    const events = readStoredList(['lets-todo.events.v1', 'lets-todo.events', 'events']);
+    const events = readStoredList(['lets-todo.events.v1', 'lets-todo.events', 'events']).filter(event => !event.private);
     let history = {};
     try { history = JSON.parse(localStorage.getItem('lets-todo.habit-history.v1') || '{}'); } catch (_) {}
     return events.reduce((total, event) => total + Object.entries(history[event.id] || {}).filter(([date]) => inBounds(date, bounds)).reduce((sum, [, count]) => sum + Number(count || 0), 0), 0);
@@ -241,16 +272,23 @@
   }
   function renderProfile() {
     const bounds = periodBounds('month');
+    $('profile-name').textContent = profile.name || 'Мой профиль';
+    $('profile-avatar').textContent = profile.emoji || '🙂';
     $('profile-completed-count').textContent = completedTaskCount(bounds);
     $('profile-habit-goals').textContent = habitStatistics(bounds).reached;
   }
   const showPage = page => {
+    if (page !== 'habits' && page !== 'habit-detail') window.dispatchEvent(new CustomEvent('lets-todo:privacy-lock'));
     currentPage = page;
     ['tasks', 'habits', 'habit-detail', 'settings', 'profile', 'statistics'].forEach(name => { const section = $(`${name}-page`); if (section) section.hidden = name !== page; });
     document.querySelectorAll('.main-nav [data-page]').forEach(button => button.classList.toggle('active', button.dataset.page === page || (page === 'habit-detail' && button.dataset.page === 'habits')));
     if (page === 'profile') renderProfile();
     if (page === 'statistics') renderStatistics();
     window.dispatchEvent(new CustomEvent('lets-todo:page-shown', { detail: page }));
+  };
+  window.letsTodoExports = {
+    tasks: () => ({ exportedAt: new Date().toISOString(), profile: { name: profile.name, emoji: profile.emoji }, tasks }),
+    statistics: () => ({ exportedAt: new Date().toISOString(), periods: Object.fromEntries(['week', 'month', 'all'].map(period => { const bounds = periodBounds(period); const habits = habitStatistics(bounds); return [period, { completedTasks: completedTaskCount(bounds), achievedHabitGoals: habits.reached, habitRegularityPercent: habits.percent, habits: habits.rows.map(row => ({ name: row.name, achievedDays: row.reached, eligibleDays: row.eligibleDays, percent: row.percent })), eventsTotal: eventCount(bounds) }]; })) }),
   };
   function render() {
     const active = tasks.filter(t => !t.completed || isCompleting(t)), archived = tasks.filter(t => t.completed && !isCompleting(t)), visible = view === 'archive' ? archived : active;
@@ -265,9 +303,13 @@
       const rows = groupTasks.map(task => {
         const subtasks = task.subtasks || []; const completedSubtasks = subtasks.filter(item => item.completed).length;
         const subtaskMeta = subtasks.length ? `<span class="subtask-status">☑ ${completedSubtasks}/${subtasks.length} подзадач</span>` : '';
-        const dueMeta = task.dueDate ? `<button class="due-badge due-badge--date ${overdue(task) ? 'overdue' : ''}" data-action="date" type="button">▣ ${escape(formatTaskDate(task.dueDate))}</button>${task.dueTime ? `<button class="due-badge due-badge--time" data-action="date" type="button">◷ ${escape(task.dueTime)}${task.endTime ? `–${escape(task.endTime)}` : ''}</button>` : ''}` : '';
+        const dueMeta = task.dueTime ? `<button class="due-badge due-badge--time" data-action="date" type="button">◷ ${escape(task.dueTime)}${task.endTime ? `–${escape(task.endTime)}` : ''}</button>` : '';
+        const priorityLabels = { urgent: 'Срочно', important: 'Важно', 'not-urgent': 'Не срочно' };
+        const priorityMeta = task.priority ? `<span class="priority-badge priority-badge--${escape(task.priority)}">! ${priorityLabels[task.priority]}</span>` : '';
+        const tagMeta = (task.tags || []).map(tag => `<span class="task-tag">#${escape(tag)}</span>`).join('');
+        const taskMeta = `${dueMeta}${priorityMeta}${tagMeta}`;
         const inlineSubtasks = subtasks.length ? `<div class="inline-subtasks">${subtasks.map(subtask => `<label class="inline-subtask ${subtask.completed ? 'is-completed' : ''}" data-subtask-id="${escape(subtask.id)}"><input class="subtask-check" type="checkbox" ${subtask.completed ? 'checked' : ''} aria-label="Выполнить подзадачу"><span>${escape(subtask.title)}</span></label>`).join('')}</div>` : '';
-        return `<article class="task ${task.completed ? 'completed' : ''} ${isCompleting(task) ? 'is-completing' : ''}" data-id="${escape(task.id)}" role="button" tabindex="0" title="Нажмите, чтобы открыть карточку"><input class="task-check" type="checkbox" ${task.completed ? 'checked' : ''} aria-label="Выполнить задачу"><div class="task-body"><div class="task-heading"><div class="task-title">${renderTaskText(task.title)}</div>${subtaskMeta}</div>${inlineSubtasks}${dueMeta ? `<div class="task-meta task-schedule">${dueMeta}</div>` : ''}</div></article>`;
+        return `<article class="task ${task.completed ? 'completed' : ''} ${isCompleting(task) ? 'is-completing' : ''}" data-id="${escape(task.id)}" role="button" tabindex="0" title="Нажмите, чтобы открыть карточку"><input class="task-check" type="checkbox" ${task.completed ? 'checked' : ''} aria-label="Выполнить задачу"><div class="task-body"><div class="task-heading"><div class="task-title">${renderTaskText(task.title)}</div>${subtaskMeta}</div>${inlineSubtasks}${taskMeta ? `<div class="task-meta task-schedule">${taskMeta}</div>` : ''}</div></article>`;
       }).join('');
       return `<div class="section-label">${escape(group === 'Без даты' ? group : formatDate(group))}</div>${rows}`;
     }).join('');
@@ -282,6 +324,13 @@
   $('window-close').addEventListener('click', () => window.letsTodo?.closeWindow?.());
   $('open-profile').addEventListener('click', () => showPage('profile'));
   $('open-statistics').addEventListener('click', () => showPage('statistics'));
+  const profileDialog = $('profile-editor-dialog');
+  const profileEmojis = ['🙂', '😊', '😎', '🧠', '💻', '🎯', '🚀', '🔥', '🌿', '⭐', '🐱', '🦊'];
+  let selectedProfileEmoji = profile.emoji || '🙂';
+  const renderProfileEmojis = () => { $('profile-emoji-options').innerHTML = profileEmojis.map(emoji => `<button class="${emoji === selectedProfileEmoji ? 'selected' : ''}" type="button" data-profile-emoji="${emoji}">${emoji}</button>`).join(''); };
+  $('edit-profile').addEventListener('click', () => { $('profile-name-input').value = profile.name || 'Мой профиль'; selectedProfileEmoji = profile.emoji || '🙂'; renderProfileEmojis(); profileDialog.showModal(); setTimeout(() => $('profile-name-input').focus(), 30); });
+  $('profile-emoji-options').addEventListener('click', event => { const button = event.target.closest('[data-profile-emoji]'); if (!button) return; selectedProfileEmoji = button.dataset.profileEmoji; renderProfileEmojis(); });
+  $('profile-editor-form').addEventListener('submit', event => { if (event.submitter?.value !== 'save') return; event.preventDefault(); const name = $('profile-name-input').value.trim(); if (!name) return; profile = { id: 'profile', name, emoji: selectedProfileEmoji }; localStorage.setItem(profileKey, JSON.stringify([profile])); window.dispatchEvent(new CustomEvent('lets-todo:data-changed')); renderProfile(); profileDialog.close(); });
   document.querySelectorAll('[data-page]').forEach(button => button.addEventListener('click', () => showPage(button.dataset.page)));
   window.addEventListener('lets-todo:navigate', event => showPage(event.detail));
   document.querySelectorAll('[data-period]').forEach(button => button.addEventListener('click', () => { statsPeriod = button.dataset.period; document.querySelectorAll('[data-period]').forEach(item => item.classList.toggle('active', item === button)); renderStatistics(); }));
@@ -289,7 +338,7 @@
   composer.addEventListener('input', () => tokenizeComposer(composer));
   pastePlainTextOnly(composer);
   composer.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); openCreatedTask = event.ctrlKey; $('quick-add').requestSubmit(); } });
-  const createTask = (rawTitle, afterCreate) => { const parsed = parseNaturalDate(rawTitle); const title = parsed.title || rawTitle; const task = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, dueDate: parsed.dueDate || null, dueTime: parsed.dueTime || null, endTime: parsed.endTime || null, recurrence: parsed.recurrence || null, reminderMinutes: parsed.dueTime ? 10 : 0, completed: false, createdAt: Date.now(), subtasks: [] }; tasks.push(task); save(); render(); afterCreate?.(task); return task; };
+  const createTask = (rawTitle, afterCreate) => { const parsed = parseNaturalDate(rawTitle); const title = parsed.title || rawTitle; const task = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, dueDate: parsed.dueDate || null, dueTime: parsed.dueTime || null, endTime: parsed.endTime || null, recurrence: parsed.recurrence || null, priority: parsed.priority || null, tags: parsed.tags || [], reminderMinutes: parsed.dueTime ? 10 : 0, completed: false, createdAt: Date.now(), subtasks: [] }; tasks.push(task); save(); render(); afterCreate?.(task); return task; };
   $('quick-add').addEventListener('submit', event => { event.preventDefault(); const rawTitle = composerValue(composer).trim(); if (!rawTitle) return composer.focus(); const shouldOpen = openCreatedTask; openCreatedTask = false; createTask(rawTitle, task => { composer.innerHTML = ''; if (shouldOpen) openTaskDetail(task, true); else composer.focus(); }); });
   quickComposer.addEventListener('input', () => tokenizeComposer(quickComposer));
   pastePlainTextOnly(quickComposer);
@@ -312,9 +361,8 @@
     $('task-detail-title').innerHTML = renderTaskText(task.title);
     $('task-detail-name').innerHTML = renderTaskEditor(task.title);
     $('task-detail-progress').textContent = subtasks.length ? `${done} из ${subtasks.length} подзадач выполнено` : 'Нет подзадач';
-    const dueButton = $('task-detail-date');
-    dueButton.textContent = task.dueDate ? formatTaskDate(task.dueDate) : 'Без даты';
-    $('task-detail-time').textContent = task.dueTime ? `${task.dueTime}${task.endTime ? `–${task.endTime}` : ''}` : 'Не указано';
+    $('task-detail-date').value = task.dueDate || '';
+    $('task-detail-time').value = task.dueTime || '';
     $('task-reminder').value = String(task.reminderMinutes || 0);
     $('task-repeat-label').textContent = task.recurrence?.label || 'Не повторяется';
     $('subtask-list').innerHTML = subtasks.length ? subtasks.map(subtask => `<label class="subtask-row ${subtask.completed ? 'is-completed' : ''}" data-subtask-id="${escape(subtask.id)}"><input type="checkbox" ${subtask.completed ? 'checked' : ''}><span>${escape(subtask.title)}</span><button class="subtask-delete" type="button" data-subtask-action="delete">Удалить</button></label>`).join('') : '<div class="empty">Добавьте первый шаг к задаче</div>';
@@ -327,7 +375,8 @@
   pastePlainTextOnly($('task-detail-name'));
   $('task-detail-name').addEventListener('blur', event => { const task = tasks.find(item => item.id === detailTaskId); const title = composerValue(event.target).trim(); if (!task || !title) return renderTaskDetail(); task.title = title; save(); render(); renderTaskDetail(); });
   $('task-reminder').addEventListener('change', event => { const task = tasks.find(item => item.id === detailTaskId); if (!task) return; task.reminderMinutes = Number(event.target.value) || 0; save(); renderTaskDetail(); });
-  $('task-detail-date').addEventListener('click', () => { const task = tasks.find(item => item.id === detailTaskId); if (task) openDueDialog(task); });
+  $('task-detail-date').addEventListener('change', event => { const task = tasks.find(item => item.id === detailTaskId); if (!task) return; task.dueDate = event.target.value || (task.dueTime ? today() : null); save(); render(); renderTaskDetail(); });
+  $('task-detail-time').addEventListener('change', event => { const task = tasks.find(item => item.id === detailTaskId); if (!task) return; task.dueTime = event.target.value || null; if (task.dueTime && !task.dueDate) task.dueDate = today(); if (!task.dueTime) task.endTime = null; save(); render(); renderTaskDetail(); });
   $('subtask-add-form').addEventListener('submit', event => { event.preventDefault(); const title = $('subtask-title').value.trim(); const task = tasks.find(item => item.id === detailTaskId); if (!task || !title) return $('subtask-title').focus(); task.subtasks.push({ id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, completed: false }); save(); $('subtask-title').value = ''; render(); renderTaskDetail(); $('subtask-title').focus(); });
   $('subtask-title').addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); $('subtask-add-form').requestSubmit(); } });
   $('subtask-list').addEventListener('change', event => { const row = event.target.closest('[data-subtask-id]'); const task = tasks.find(item => item.id === detailTaskId); const subtask = task?.subtasks.find(item => item.id === row?.dataset.subtaskId); if (!subtask) return; subtask.completed = event.target.checked; save(); render(); renderTaskDetail(); });
@@ -365,7 +414,8 @@
   }
   window.addEventListener('storage', event => {
     if (event.key === storageKey) { try { tasks = JSON.parse(event.newValue || '[]'); } catch (_) {} }
-    if (!event.key || event.key === storageKey || /habit|event/i.test(event.key)) render();
+    if (event.key === profileKey) { try { const value = JSON.parse(event.newValue || '[]'); if (value[0]) profile = value[0]; } catch (_) {} }
+    if (!event.key || event.key === storageKey || event.key === profileKey || /habit|event/i.test(event.key)) render();
   });
   window.addEventListener('focus', () => { if (currentPage !== 'tasks') render(); });
   window.addEventListener('lets-todo:data-changed', render);

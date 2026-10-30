@@ -92,14 +92,25 @@ class SyncService {
 
   startTcp() {
     return new Promise((resolve, reject) => {
-      this.server = net.createServer(socket => this.acceptSocket(socket));
-      this.server.once('error', reject);
-      this.server.listen(DEFAULT_PORT, '0.0.0.0', () => {
-        this.server.off('error', reject);
-        this.server.on('error', () => this.emitState());
-        this.port = this.server.address().port;
-        resolve();
-      });
+      const listen = port => {
+        this.server = net.createServer(socket => this.acceptSocket(socket));
+        const onError = error => {
+          if (error.code === 'EADDRINUSE' && port === DEFAULT_PORT) {
+            this.server.removeAllListeners();
+            listen(0);
+            return;
+          }
+          reject(error);
+        };
+        this.server.once('error', onError);
+        this.server.listen(port, '0.0.0.0', () => {
+          this.server.off('error', onError);
+          this.server.on('error', () => this.emitState());
+          this.port = this.server.address().port;
+          resolve();
+        });
+      };
+      listen(DEFAULT_PORT);
     });
   }
 

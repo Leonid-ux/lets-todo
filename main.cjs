@@ -1,14 +1,30 @@
-const { app, BrowserWindow, globalShortcut, ipcMain, shell, Notification, screen, safeStorage } = require('electron');
+const { app, BrowserWindow, globalShortcut, ipcMain, shell, Notification, screen, safeStorage, Tray, Menu, nativeImage, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const fs = require('node:fs');
 const { SyncService } = require('./sync-service.cjs');
 let quickAddWindow = null;
 let mainWindow = null;
 let syncService = null;
+let tray = null;
 const syncReplies = new Map();
 const appIcon = path.join(__dirname, 'assets', 'app-icon.png');
+if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'lets-todo-dev'));
+const preferencesPath = path.join(app.getPath('userData'), 'preferences.json');
+const defaultPreferences = { notificationsEnabled: true, minimizeToTray: false };
+const readPreferences = () => { try { return { ...defaultPreferences, ...JSON.parse(fs.readFileSync(preferencesPath, 'utf8')) }; } catch (_) { return { ...defaultPreferences }; } };
+let preferences = readPreferences();
+const writePreferences = () => { fs.mkdirSync(path.dirname(preferencesPath), { recursive: true }); fs.writeFileSync(preferencesPath, JSON.stringify(preferences, null, 2)); };
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
+app.on('second-instance', () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
 
 const updateState = { status: 'idle', info: null, error: null, progress: 0 };
 const releaseNotesText = notes => Array.isArray(notes)
@@ -63,12 +79,29 @@ function createWindow() {
     },
   });
   mainWindow = window;
+  window.on('minimize', event => { if (!preferences.minimizeToTray) return; event.preventDefault(); window.hide(); });
   window.on('closed', () => { if (mainWindow === window) mainWindow = null; });
   window.loadFile(path.join(__dirname, 'src', 'index.html'));
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
   });
+}
+
+function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) createWindow();
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show(); mainWindow.focus();
+}
+
+function applyTrayPreference() {
+  if (!preferences.minimizeToTray) { tray?.destroy(); tray = null; return; }
+  if (tray) return;
+  const image = nativeImage.createFromPath(appIcon).resize({ width: 16, height: 16 });
+  tray = new Tray(image);
+  tray.setToolTip('Lets Todo');
+  tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Открыть Lets Todo', click: showMainWindow }, { type: 'separator' }, { label: 'Выйти', click: () => app.quit() }]));
+  tray.on('double-click', showMainWindow);
 }
 
 function showQuickAddWindow() {
@@ -109,8 +142,10 @@ function showQuickAddWindow() {
 }
 
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return;
   configureUpdater();
   createWindow();
+  applyTrayPreference();
   syncService = new SyncService({
     userDataPath: app.getPath('userData'),
     deviceName: os.hostname(),
@@ -143,9 +178,27 @@ ipcMain.on('quick-add-close', event => {
 });
 ipcMain.handle('open-external', (_event, url) => /^https?:\/\//i.test(String(url)) ? shell.openExternal(url) : false);
 ipcMain.handle('show-notification', (_event, payload) => {
-  if (!Notification.isSupported()) return false;
+  if (!preferences.notificationsEnabled || !Notification.isSupported()) return false;
   new Notification({ title: String(payload?.title || 'Lets Todo'), body: String(payload?.body || ''), icon: appIcon }).show();
   return true;
+});
+ipcMain.handle('preferences-get', () => ({ ...preferences }));
+ipcMain.handle('preferences-set', (_event, next) => { preferences = { ...preferences, notificationsEnabled: next?.notificationsEnabled !== false, minimizeToTray: Boolean(next?.minimizeToTray) }; writePreferences(); applyTrayPreference(); return { ...preferences }; });
+const privacyStatus = () => ({ hasPin: Boolean(preferences.privacy?.hash && preferences.privacy?.salt), enabled: preferences.privacy?.enabled !== false });
+const validPin = pin => /^\d{4,6}$/.test(String(pin || ''));
+const pinHash = (pin, salt) => crypto.pbkdf2Sync(String(pin), salt, 120000, 32, 'sha256').toString('hex');
+let privacyAttempts = { count: 0, lockedUntil: 0 };
+ipcMain.handle('privacy-get', () => privacyStatus());
+ipcMain.handle('privacy-set-pin', (_event, pin) => { if (!validPin(pin)) return { ok: false, error: 'PIN должен содержать 4–6 цифр.' }; const salt = crypto.randomBytes(16).toString('hex'); preferences.privacy = { hash: pinHash(pin, salt), salt, enabled: true }; writePreferences(); privacyAttempts = { count: 0, lockedUntil: 0 }; return { ok: true, ...privacyStatus() }; });
+ipcMain.handle('privacy-verify-pin', (_event, pin) => { const now = Date.now(); if (privacyAttempts.lockedUntil > now) return { ok: false, retryAfter: Math.ceil((privacyAttempts.lockedUntil - now) / 1000) }; const config = preferences.privacy; const actual = config?.hash ? Buffer.from(config.hash, 'hex') : null; const ok = validPin(pin) && actual && crypto.timingSafeEqual(actual, Buffer.from(pinHash(pin, config.salt), 'hex')); if (ok) { privacyAttempts = { count: 0, lockedUntil: 0 }; return { ok: true }; } privacyAttempts.count += 1; if (privacyAttempts.count >= 5) { privacyAttempts = { count: 0, lockedUntil: now + 30000 }; return { ok: false, retryAfter: 30 }; } return { ok: false, attemptsLeft: 5 - privacyAttempts.count }; });
+ipcMain.handle('privacy-set-enabled', (_event, enabled) => { if (!preferences.privacy?.hash) return { ok: false }; preferences.privacy.enabled = Boolean(enabled); writePreferences(); return { ok: true, ...privacyStatus() }; });
+ipcMain.handle('export-json', async (_event, payload) => {
+  const kind = payload?.kind === 'statistics' ? 'statistics' : 'tasks';
+  const date = new Date().toISOString().slice(0, 10);
+  const result = await dialog.showSaveDialog(mainWindow, { title: kind === 'tasks' ? 'Выгрузить задачи' : 'Выгрузить статистику', defaultPath: `lets-todo-${kind}-${date}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] });
+  if (result.canceled || !result.filePath) return { saved: false };
+  fs.writeFileSync(result.filePath, JSON.stringify(payload.data, null, 2), 'utf8');
+  return { saved: true, filePath: result.filePath };
 });
 ipcMain.handle('get-app-info', () => ({ version: app.getVersion(), isPackaged: app.isPackaged, platform: process.platform }));
 ipcMain.handle('update-get-state', () => publicUpdateState());
@@ -169,5 +222,5 @@ ipcMain.handle('sync-message-response', (_event, requestId, response) => {
   const complete = syncReplies.get(String(requestId)); if (!complete) return false;
   syncReplies.delete(String(requestId)); complete(response); return true;
 });
-app.on('will-quit', () => { globalShortcut.unregisterAll(); syncService?.stop(); });
+app.on('will-quit', () => { globalShortcut.unregisterAll(); syncService?.stop(); tray?.destroy(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

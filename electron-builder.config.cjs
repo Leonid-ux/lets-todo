@@ -1,3 +1,5 @@
+const path = require('node:path');
+const { version } = require('./package.json');
 const [owner, repo] = String(process.env.UPDATE_REPOSITORY || '').split('/');
 
 if (!owner || !repo) {
@@ -7,7 +9,7 @@ if (!owner || !repo) {
 module.exports = {
   appId: 'com.letstodo.app',
   productName: 'Lets Todo',
-  directories: { output: 'release' },
+  directories: { output: path.join('build', version) },
   files: ['main.cjs', 'preload.cjs', 'sync-service.cjs', 'sync-protocol.cjs', 'src/**', 'assets/**', 'package.json'],
   asar: true,
   win: {

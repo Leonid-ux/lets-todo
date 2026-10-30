@@ -19,6 +19,7 @@
   let editorColor = colors[0];
   let habitView = 'active';
   let lastTimerActionAt = 0;
+  let privateUnlocked = false;
   const calendarState = { main: { month: false, anchor: dateFromKey(selectedDate) }, detail: { month: false, anchor: dateFromKey(selectedDate) } };
 
   function localDateKey(date) { const value = new Date(date); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
@@ -26,6 +27,7 @@
   function escape(value) { return String(value).replace(/[&<>"']/g, character => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[character])); }
   function uid() { return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`; }
   function allEntries() { return [...habits, ...events, ...timers]; }
+  function visibleEntries() { return allEntries().filter(entry => privateUnlocked ? entry.private : !entry.private); }
   function findEntry(id) { return allEntries().find(entry => entry.id === id); }
   function countFor(id, date = selectedDate) { return Math.max(0, Number(history[id]?.[date] || 0)); }
   function saveDefinitions() { localStorage.setItem(habitsKey, JSON.stringify(habits)); localStorage.setItem(eventsKey, JSON.stringify(events)); localStorage.setItem(timersKey, JSON.stringify(timers)); }
@@ -58,7 +60,7 @@
   function startOfWeek(date) { const result = new Date(date); const day = result.getDay() || 7; result.setDate(result.getDate() - day + 1); return result; }
   function dateLabel(key) { return new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }).format(dateFromKey(key)); }
   function dotsForDate(key, detail) {
-    const entries = detail ? [findEntry(detailId)].filter(Boolean) : allEntries();
+    const entries = detail ? [findEntry(detailId)].filter(Boolean) : visibleEntries();
     return entries.filter(entry => entry.type === 'timer' ? timerTotal(entry.id, key) > 0 : countFor(entry.id, key) > 0).slice(0, 4).map(entry => `<i style="--dot-color:${escape(entry.color)}"></i>`).join('');
   }
   function renderCalendar(name) {
@@ -93,32 +95,36 @@
   function archiveRow(entry) { return `<div class="habit-row archived" data-entry-id="${escape(entry.id)}"><span class="habit-check" style="--entry-color:${escape(entry.color)}"></span><button class="habit-name" type="button" data-open-entry>${escape(entry.name)}</button><span class="habit-count">В архиве</span><button class="habit-restore" type="button" data-restore-entry aria-label="Восстановить">↺</button></div>`; }
   function timerRow(entry, date = selectedDate, todayCard = false) { const active = timerActive(entry.id); const total = timerTotal(entry.id, date); return `<div class="habit-row timer-row ${active ? 'timer-active' : ''}" data-entry-id="${escape(entry.id)}" ${todayCard ? 'data-today-timer' : ''}><button class="habit-check timer-play" type="button" data-timer-toggle style="--entry-color:${escape(entry.color)}" aria-label="${active ? 'Остановить' : 'Запустить'}">${active ? '■' : '▶'}</button><button class="habit-name" type="button" data-open-entry>${escape(entry.name)}</button><span class="habit-count">${active ? formatClock(total) : formatDuration(total)}</span><span class="timer-state">${active ? 'Активен' : ''}</span></div>`; }
   function renderLists() {
-    const activeHabits = habits.filter(entry => !entry.archivedAt);
-    const archivedHabits = habits.filter(entry => entry.archivedAt);
-    $('habits-selected-label').textContent = dateLabel(selectedDate);
+    const activeHabits = habits.filter(entry => !entry.archivedAt && Boolean(entry.private) === privateUnlocked);
+    const archivedHabits = habits.filter(entry => entry.archivedAt && Boolean(entry.private) === privateUnlocked);
+    const visibleEvents = events.filter(entry => Boolean(entry.private) === privateUnlocked);
+    const visibleTimers = timers.filter(entry => Boolean(entry.private) === privateUnlocked);
+    $('habits-page-title').textContent = privateUnlocked ? 'Личные' : 'Привычки'; $('habits-selected-label').textContent = dateLabel(selectedDate);
+    $('open-private-entries').hidden = privateUnlocked; $('close-private-entries').hidden = !privateUnlocked;
     $('active-habit-count').textContent = activeHabits.length;
     $('archived-habit-count').textContent = archivedHabits.length;
     $('habit-list-section').hidden = habitView !== 'active'; $('event-list-section').hidden = habitView !== 'active'; $('habit-archive-section').hidden = habitView !== 'archive';
     document.querySelectorAll('[data-habit-view]').forEach(button => button.classList.toggle('active', button.dataset.habitView === habitView));
     $('habit-list').innerHTML = activeHabits.length ? activeHabits.map(row).join('') : '<div class="stats-empty">Пока нет привычек</div>';
-    $('event-list').innerHTML = events.length ? events.map(row).join('') : '<div class="stats-empty">Пока нет событий</div>';
-    $('timer-list').innerHTML = timers.length ? timers.map(entry => timerRow(entry)).join('') : '<div class="stats-empty">Пока нет таймеров</div>';
+    $('event-list').innerHTML = visibleEvents.length ? visibleEvents.map(row).join('') : '<div class="stats-empty">Пока нет событий</div>';
+    $('timer-list').innerHTML = visibleTimers.length ? visibleTimers.map(entry => timerRow(entry)).join('') : '<div class="stats-empty">Пока нет таймеров</div>';
     $('habit-archive-list').innerHTML = archivedHabits.length ? archivedHabits.map(archiveRow).join('') : '<div class="stats-empty">Архив привычек пуст</div>';
   }
   function renderToday() {
     const today = localDateKey(new Date());
-    const activeHabits = habits.filter(entry => !entry.archivedAt);
+    const activeHabits = habits.filter(entry => !entry.archivedAt && !entry.private);
+    document.querySelector('.today-habits').hidden = activeHabits.length + timers.length === 0;
     const done = activeHabits.filter(entry => countFor(entry.id, today) >= entry.goal).length;
     $('today-habits-summary').textContent = `${done}/${activeHabits.length}`;
     const todayRows = activeHabits.map(entry => {
       const count = countFor(entry.id, today); const completed = count >= entry.goal;
       return `<div class="habit-row ${completed ? 'completed' : ''}" data-entry-id="${escape(entry.id)}" data-today-habit><button class="habit-check" type="button" data-count-change="1" style="--entry-color:${escape(entry.color)}"></button><button class="habit-name" type="button" data-open-entry>${escape(entry.name)}</button><span class="habit-count">${count}/${entry.goal}</span><button class="habit-minus" type="button" data-count-change="-1" ${count ? '' : 'disabled'}>−</button></div>`;
     });
-    const timerRows = timers.map(entry => timerRow(entry, today, true));
+    const timerRows = timers.filter(entry => !entry.private).map(entry => timerRow(entry, today, true));
     $('today-habit-list').innerHTML = [...todayRows, ...timerRows].length ? [...todayRows, ...timerRows].join('') : '<div class="stats-empty">Добавьте первую привычку или таймер</div>';
     renderActiveTimer();
   }
-  function renderActiveTimer() { const session = activeSession(); const indicator = $('active-timer-indicator'); if (!session) { indicator.hidden = true; return; } const timer = timers.find(entry => entry.id === session.timerId); if (!timer) { stopActive(); saveSessions(); indicator.hidden = true; return; } indicator.hidden = false; indicator.dataset.timerId = timer.id; indicator.innerHTML = `<span style="--entry-color:${escape(timer.color)}">▶</span> ${escape(timer.name)} · ${formatClock(Date.now() - session.startedAt)}`; }
+  function renderActiveTimer() { const session = activeSession(); const indicator = $('active-timer-indicator'); if (!session) { indicator.hidden = true; return; } const timer = timers.find(entry => entry.id === session.timerId); if (!timer) { stopActive(); saveSessions(); indicator.hidden = true; return; } indicator.hidden = false; indicator.dataset.timerId = timer.private && !privateUnlocked ? '' : timer.id; indicator.innerHTML = timer.private && !privateUnlocked ? '<span>▶</span> Личный таймер активен' : `<span style="--entry-color:${escape(timer.color)}">▶</span> ${escape(timer.name)} · ${formatClock(Date.now() - session.startedAt)}`; }
   function renderDetail() {
     const entry = findEntry(detailId); if (!entry) return;
     const count = countFor(entry.id);
@@ -145,7 +151,7 @@
     $('timer-session-list').innerHTML = daySessions.length ? daySessions.map(session => { const start = Math.max(session.startedAt, bounds.start); const end = Math.min(session.endedAt || now, bounds.end); return `<div class="timer-session-row"><span>${time(start)}–${session.endedAt ? time(end) : 'сейчас'}</span><strong>${formatDuration(end - start)}</strong></div>`; }).join('') : '<div class="stats-empty">За этот день сессий нет</div>';
   }
   function renderAll() { renderCalendar('main'); renderLists(); renderToday(); if (detailId) renderDetail(); }
-  function navigateDetail(id) { detailId = id; calendarState.detail.anchor = dateFromKey(selectedDate); window.dispatchEvent(new CustomEvent('lets-todo:navigate', { detail: 'habit-detail' })); renderDetail(); }
+  function navigateDetail(id) { const entry = findEntry(id); if (!entry || (entry.private && !privateUnlocked)) return; detailId = id; calendarState.detail.anchor = dateFromKey(selectedDate); window.dispatchEvent(new CustomEvent('lets-todo:navigate', { detail: 'habit-detail' })); renderDetail(); }
 
   document.querySelectorAll('.habit-calendar').forEach(calendar => {
     const name = calendar.dataset.calendar;
@@ -175,32 +181,68 @@
   const modal = $('habit-editor-modal');
   const editorContent = $('habit-editor-content');
   function renderColors() { $('habit-color-options').innerHTML = colors.map(color => `<button type="button" data-color="${color}" class="${color === editorColor ? 'selected' : ''}" style="--entry-color:${color}" aria-label="Выбрать цвет"></button>`).join(''); }
-  function renderTypePicker() {
-    editorContent.innerHTML = `<div class="quick-add-sheet habit-editor-sheet"><header><div><p class="eyebrow">НОВАЯ ЗАПИСЬ</p><h2>Выберите тип</h2></div><button class="dialog-close" data-editor-close type="button" aria-label="Закрыть">×</button></header><div class="habit-type-switch"><button type="button" data-entry-type="habit">Привычка</button><button type="button" data-entry-type="event">Событие</button><button type="button" data-entry-type="timer">Таймер</button></div></div>`;
+  function setEditorType(type) {
+    editorType = type;
+    const typeName = type === 'habit' ? 'Привычка' : type === 'event' ? 'Событие' : 'Таймер';
+    editorContent.querySelectorAll('[data-entry-type]').forEach(button => button.classList.toggle('active', button.dataset.entryType === type));
+    const goal = $('habit-goal-field'); if (goal) goal.hidden = type !== 'habit';
+    const heading = $('habit-editor-heading'); if (heading && !editingId) heading.textContent = typeName;
   }
   function renderEditorForm(entry = null) {
     const type = entry?.type || editorType;
     const typeName = type === 'habit' ? 'Привычка' : type === 'event' ? 'Событие' : 'Таймер';
-    const goalField = type === 'habit' ? `<label class="habit-form-field"><span>Количество в день</span><input id="habit-goal" class="ui-input" type="number" min="1" max="99" value="${entry?.goal || 1}" required></label>` : '';
-    editorContent.innerHTML = `<form id="habit-editor-form" class="quick-add-sheet habit-editor-sheet"><header><div><p class="eyebrow">${entry ? 'ИЗМЕНЕНИЕ ЗАПИСИ' : `НОВАЯ ${typeName.toUpperCase()}`}</p><h2>${entry ? 'Изменить' : typeName}</h2></div><button class="dialog-close" data-editor-close type="button" aria-label="Закрыть">×</button></header><label class="habit-form-field"><span>Название</span><input id="habit-name" class="ui-input" maxlength="80" value="${escape(entry?.name || '')}" required></label><fieldset class="habit-colors"><legend>Цвет</legend><div id="habit-color-options"></div></fieldset>${goalField}<footer><button class="ui-button ui-button--primary" type="submit">Сохранить</button></footer></form>`;
-    renderColors(); setTimeout(() => $('habit-name').focus(), 40);
+    const typeTabs = ['habit', 'event', 'timer'].map(value => `<button type="button" data-entry-type="${value}" ${entry ? 'disabled' : ''}>${value === 'habit' ? 'Привычка' : value === 'event' ? 'Событие' : 'Таймер'}</button>`).join('');
+    editorContent.innerHTML = `<form id="habit-editor-form" class="quick-add-sheet habit-editor-sheet"><header><div><p class="eyebrow">${entry ? 'ИЗМЕНЕНИЕ ЗАПИСИ' : 'НОВАЯ ЗАПИСЬ'}</p><h2 id="habit-editor-heading">${entry ? 'Изменить' : typeName}</h2></div><button class="dialog-close" data-editor-close type="button" aria-label="Закрыть">×</button></header><div class="habit-type-switch">${typeTabs}</div><div class="habit-editor-fields"><label class="habit-form-field"><span>Название</span><input id="habit-name" class="ui-input" maxlength="80" value="${escape(entry?.name || '')}" required></label><fieldset class="habit-colors"><legend>Цвет</legend><div id="habit-color-options"></div></fieldset><label id="habit-goal-field" class="habit-form-field"><span>Количество в день</span><input id="habit-goal" class="ui-input" type="number" min="1" max="99" value="${entry?.goal || 1}" required></label><label class="privacy-option"><span>Личная запись<br><small>Скрыть из общего списка и календаря</small></span><input id="habit-private" type="checkbox" ${entry?.private || (!entry && privateUnlocked) ? 'checked' : ''}></label></div><footer><button class="ui-button ui-button--primary" type="submit">Сохранить</button></footer></form>`;
+    renderColors(); setEditorType(type); setTimeout(() => $('habit-name').focus(), 40);
   }
   function openEditor(entry = null) {
     editingId = entry?.id || null; editorColor = entry?.color || colors[0]; editorType = entry?.type || 'habit';
     modal.classList.add('is-open'); modal.setAttribute('aria-hidden', 'false');
-    if (entry) renderEditorForm(entry); else renderTypePicker();
+    renderEditorForm(entry);
   }
   function closeEditor() { modal.classList.remove('is-open'); modal.setAttribute('aria-hidden', 'true'); editingId = null; }
+  const privacyModal = $('privacy-modal');
+  const privacyContent = $('privacy-modal-content');
+  let privacyMode = 'open';
+  const closePrivacyModal = () => { privacyModal.classList.remove('is-open'); privacyModal.setAttribute('aria-hidden', 'true'); };
+  async function openPrivateEntries(allowWithoutPin = false) {
+    const status = await window.letsTodo?.privacy?.get?.();
+    if (!status?.hasPin) { if (allowWithoutPin) { privateUnlocked = true; renderAll(); } else openPrivacyModal('setup'); return; }
+    if (status.enabled === false) { privateUnlocked = true; renderAll(); return; }
+    openPrivacyModal('open');
+  }
+  function openPrivacyModal(mode) {
+    privacyMode = mode; const labels = { open: ['Личные записи', 'Введите PIN для просмотра личных записей.', 'Открыть'], setup: ['Установить PIN', 'PIN состоит из 4–6 цифр.', 'Сохранить'], change: ['Изменить PIN', 'Сначала подтвердите текущий PIN, затем введите новый.', 'Сохранить'], disable: ['Отключить защиту', 'Подтвердите текущий PIN. Личные записи останутся личными.', 'Отключить'], enable: ['Включить защиту', 'Подтвердите текущий PIN.', 'Включить'] };
+    const [title, text, submit] = labels[mode]; const current = mode === 'change' || mode === 'disable' || mode === 'enable'; const confirmation = mode === 'setup' || mode === 'change';
+    privacyContent.innerHTML = `<form id="privacy-form" class="quick-add-sheet habit-editor-sheet"><header><div><p class="eyebrow">ПРИВАТНОСТЬ</p><h2>${title}</h2></div><button class="dialog-close" data-privacy-close type="button" aria-label="Закрыть">×</button></header><div class="habit-editor-fields"><p class="muted">${text}</p>${current ? '<label class="habit-form-field"><span>Текущий PIN</span><input id="privacy-current-pin" class="ui-input" inputmode="numeric" pattern="[0-9]*" type="password" maxlength="6" required></label>' : ''}${mode !== 'disable' ? `<label class="habit-form-field"><span>${confirmation ? 'Новый PIN' : 'PIN'}</span><input id="privacy-pin" class="ui-input" inputmode="numeric" pattern="[0-9]*" type="password" maxlength="6" required></label>` : ''}${confirmation ? '<label class="habit-form-field"><span>Повторите PIN</span><input id="privacy-pin-confirm" class="ui-input" inputmode="numeric" pattern="[0-9]*" type="password" maxlength="6" required></label>' : ''}<p id="privacy-error" class="privacy-error"></p></div><footer><button class="ui-button ui-button--primary" type="submit">${submit}</button></footer></form>`;
+    if (mode === 'enable') $('privacy-pin')?.closest('label')?.remove();
+    privacyModal.classList.add('is-open'); privacyModal.setAttribute('aria-hidden', 'false'); setTimeout(() => $('privacy-current-pin')?.focus() || $('privacy-pin')?.focus(), 30);
+  }
+  async function verifyCurrent() { const result = await window.letsTodo?.privacy?.verify?.($('privacy-current-pin')?.value || $('privacy-pin').value); if (result?.ok) return true; $('privacy-error').textContent = result?.retryAfter ? `Слишком много попыток. Повторите через ${result.retryAfter} с.` : `Неверный PIN${result?.attemptsLeft ? `. Осталось попыток: ${result.attemptsLeft}` : ''}`; return false; }
+  privacyModal.addEventListener('click', event => { if (event.target === privacyModal || event.target.closest('[data-privacy-close]')) closePrivacyModal(); });
+  privacyModal.addEventListener('submit', async event => {
+    if (event.target.id !== 'privacy-form') return; event.preventDefault(); const pin = $('privacy-pin')?.value || '';
+    if (privacyMode === 'open') { if (await verifyCurrent()) { privateUnlocked = true; closePrivacyModal(); renderAll(); } return; }
+    if ((privacyMode === 'change' || privacyMode === 'disable' || privacyMode === 'enable') && !(await verifyCurrent())) return;
+    if (privacyMode === 'disable' || privacyMode === 'enable') { await window.letsTodo?.privacy?.setEnabled?.(privacyMode === 'enable'); closePrivacyModal(); window.dispatchEvent(new CustomEvent('lets-todo:privacy-status-changed')); return; }
+    if (!/^\d{4,6}$/.test(pin) || pin !== $('privacy-pin-confirm').value) { $('privacy-error').textContent = 'Введите одинаковый PIN из 4–6 цифр.'; return; }
+    const result = await window.letsTodo?.privacy?.setPin?.(pin); if (!result?.ok) { $('privacy-error').textContent = result?.error || 'Не удалось сохранить PIN.'; return; }
+    closePrivacyModal(); privateUnlocked = true; renderAll(); window.dispatchEvent(new CustomEvent('lets-todo:privacy-status-changed'));
+  });
+  $('open-private-entries').addEventListener('click', openPrivateEntries);
+  $('close-private-entries').addEventListener('click', () => { privateUnlocked = false; detailId = null; renderAll(); window.dispatchEvent(new CustomEvent('lets-todo:navigate', { detail: 'habits' })); });
+  window.addEventListener('lets-todo:privacy-lock', () => { if (!privateUnlocked) return; privateUnlocked = false; detailId = null; closeEditor(); closePrivacyModal(); renderAll(); });
+  window.addEventListener('lets-todo:privacy-configure', event => event.detail === 'enter' ? openPrivateEntries(true) : openPrivacyModal(event.detail));
   $('add-habit-entry').addEventListener('click', () => openEditor());
   $('edit-habit-entry').addEventListener('click', () => { const entry = findEntry(detailId); if (entry) openEditor(entry); });
-  modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-editor-close]')) { closeEditor(); return; } const type = event.target.closest('[data-entry-type]'); if (type) { editorType = type.dataset.entryType; renderEditorForm(); return; } const color = event.target.closest('[data-color]'); if (color) { editorColor = color.dataset.color; renderColors(); } });
+  modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-editor-close]')) { closeEditor(); return; } const type = event.target.closest('[data-entry-type]'); if (type && !type.disabled) { setEditorType(type.dataset.entryType); return; } const color = event.target.closest('[data-color]'); if (color) { editorColor = color.dataset.color; renderColors(); } });
   modal.addEventListener('submit', event => {
     if (event.target.id !== 'habit-editor-form') return;
     event.preventDefault(); const name = $('habit-name').value.trim(); if (!name) return;
     const existing = findEntry(editingId); const entry = existing || { id: uid(), type: editorType, createdAt: localDateKey(new Date()) };
-    entry.name = name; entry.color = editorColor; if (entry.type === 'habit') entry.goal = Math.min(99, Math.max(1, Number($('habit-goal').value) || 1));
+    entry.name = name; entry.color = editorColor; entry.private = $('habit-private').checked; if (entry.type === 'habit') entry.goal = Math.min(99, Math.max(1, Number($('habit-goal').value) || 1));
     if (!existing) { if (entry.type === 'habit') habits.push(entry); else if (entry.type === 'event') events.push(entry); else timers.push(entry); }
-    saveDefinitions(); closeEditor(); renderAll(); notifyChange();
+    saveDefinitions(); closeEditor(); if (entry.private && !privateUnlocked) { detailId = null; window.dispatchEvent(new CustomEvent('lets-todo:navigate', { detail: 'habits' })); } renderAll(); notifyChange();
   });
   $('habit-detail-page').addEventListener('click', event => {
     if (event.target.closest('#habit-detail-minus')) { changeCount(detailId, -1); return; }

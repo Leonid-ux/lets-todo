@@ -2,7 +2,7 @@
   const api = window.letsTodo?.sync;
   const keys = {
     tasks: 'lets-todo.tasks.v1', habits: 'lets-todo.habits.v1', events: 'lets-todo.events.v1',
-    timers: 'lets-todo.timers.v1', habitHistory: 'lets-todo.habit-history.v1', timerSessions: 'lets-todo.timer-sessions.v1',
+    timers: 'lets-todo.timers.v1', habitHistory: 'lets-todo.habit-history.v1', timerSessions: 'lets-todo.timer-sessions.v1', profile: 'lets-todo.profile.v1',
   };
   const metaKey = 'lets-todo.sync-meta.v1';
   const read = (key, fallback) => { try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); } catch (_) { return fallback; } };
@@ -15,11 +15,13 @@
   let deviceId = 'local';
   let captureTimer = null;
   let applying = false;
+  const privateEntryIds = () => new Set(['habits', 'events', 'timers'].flatMap(name => read(keys[name], [])).filter(item => item?.private).map(item => String(item.id)));
 
   function collectionItems(name) {
     const value = read(keys[name], name === 'habitHistory' ? {} : []);
-    if (name !== 'habitHistory') return Array.isArray(value) ? value.map(item => ({ id: String(item.id), value: item })).filter(item => item.id && item.id !== 'undefined') : [];
-    return Object.entries(value).flatMap(([habitId, dates]) => Object.entries(dates || {}).map(([date, count]) => ({ id: `${habitId}|${date}`, value: { habitId, date, count } })));
+    const privateIds = privateEntryIds();
+    if (name !== 'habitHistory') return Array.isArray(value) ? value.filter(item => !(item?.private || ((name === 'timerSessions') && privateIds.has(String(item?.timerId))))).map(item => ({ id: String(item.id), value: item })).filter(item => item.id && item.id !== 'undefined') : [];
+    return Object.entries(value).filter(([habitId]) => !privateIds.has(String(habitId))).flatMap(([habitId, dates]) => Object.entries(dates || {}).map(([date, count]) => ({ id: `${habitId}|${date}`, value: { habitId, date, count } })));
   }
 
   async function captureSnapshot() {
@@ -51,9 +53,13 @@
     if (name === 'habitHistory') {
       const result = {};
       Object.values(records).filter(item => !item.deleted && item.value).forEach(item => { const { habitId, date, count } = item.value; (result[habitId] ||= {})[date] = count; });
+      const privateIds = privateEntryIds(); const existing = read(keys[name], {}); Object.entries(existing).filter(([id]) => privateIds.has(String(id))).forEach(([id, dates]) => { result[id] = dates; });
       localStorage.setItem(keys[name], JSON.stringify(result)); return;
     }
     const result = Object.values(records).filter(item => !item.deleted && item.value).map(item => item.value);
+    const privateIds = privateEntryIds(); const existing = read(keys[name], []);
+    if (['habits', 'events', 'timers'].includes(name)) result.push(...existing.filter(item => item?.private));
+    if (name === 'timerSessions') result.push(...existing.filter(item => privateIds.has(String(item?.timerId))));
     localStorage.setItem(keys[name], JSON.stringify(result));
   }
 

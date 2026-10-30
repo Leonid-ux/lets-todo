@@ -60,11 +60,19 @@
     downloading: 'Скачиваем обновление…', downloaded: 'Обновление готово к установке.',
     unavailable: 'Проверка обновлений доступна в установленной Windows-версии приложения.',
   };
+  function readableReleaseNotes(value) {
+    const source = String(value || '').trim();
+    if (!source) return 'Описание изменений не добавлено.';
+    if (!/<[a-z][\s\S]*>/i.test(source)) return source;
+    const withBreaks = source.replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h[1-6])>/gi, '\n').replace(/<li[^>]*>/gi, '• ');
+    const document = new DOMParser().parseFromString(withBreaks, 'text/html');
+    return (document.body.textContent || '').replace(/\n\s*\n\s*\n/g, '\n\n').trim() || 'Описание изменений не добавлено.';
+  }
   function showUpdateDialog() {
     if (!updateState.info || updateDialog.open) return;
     $('update-dialog-title').textContent = `Версия ${updateState.info.version} готова`;
     $('update-dialog-summary').textContent = 'В этой версии появится:';
-    $('update-release-notes').textContent = updateState.info.releaseNotes || 'Описание изменений не добавлено.';
+    $('update-release-notes').textContent = readableReleaseNotes(updateState.info.releaseNotes);
     if (updateState.status === 'downloaded') $('update-primary-action').textContent = 'Перезапустить и установить';
     else if (updateState.status === 'downloading') $('update-primary-action').textContent = `Скачивается: ${updateState.progress || 0}%`;
     else $('update-primary-action').textContent = 'Скачать обновление';
@@ -105,7 +113,28 @@
   $('update-dialog-close').addEventListener('click', () => updateDialog.close());
   $('update-later').addEventListener('click', () => updateDialog.close());
   updater?.onStateChanged(renderUpdate);
-  window.addEventListener('lets-todo:page-shown', event => { if (event.detail === 'settings') refresh(); });
+  const preferencesApi = window.letsTodo?.preferences;
+  async function refreshPreferences() { if (!preferencesApi) return; const values = await preferencesApi.get(); $('notifications-setting').checked = values.notificationsEnabled !== false; $('tray-setting').checked = Boolean(values.minimizeToTray); }
+  async function savePreferences() { if (!preferencesApi) return; const values = await preferencesApi.set({ notificationsEnabled: $('notifications-setting').checked, minimizeToTray: $('tray-setting').checked }); $('notifications-setting').checked = values.notificationsEnabled; $('tray-setting').checked = values.minimizeToTray; }
+  $('notifications-setting').addEventListener('change', savePreferences);
+  $('tray-setting').addEventListener('change', savePreferences);
+  const privacyApi = window.letsTodo?.privacy;
+  async function refreshPrivacy() { if (!privacyApi) return; const status = await privacyApi.get(); const pinButton = $('privacy-pin-action'); const protectionButton = $('privacy-protection-action'); pinButton.textContent = status.hasPin ? 'Изменить PIN' : 'Установить PIN'; protectionButton.hidden = !status.hasPin; protectionButton.textContent = status.enabled ? 'Отключить защиту PIN' : 'Включить защиту PIN'; $('privacy-settings-status').textContent = status.hasPin ? (status.enabled ? 'Защита PIN включена.' : 'Личные записи открываются без PIN.') : 'PIN ещё не установлен.'; }
+  $('privacy-open-action').addEventListener('click', () => window.dispatchEvent(new CustomEvent('lets-todo:privacy-configure', { detail: 'enter' })));
+  $('privacy-pin-action').addEventListener('click', () => window.dispatchEvent(new CustomEvent('lets-todo:privacy-configure', { detail: $('privacy-pin-action').textContent.includes('Изменить') ? 'change' : 'setup' })));
+  $('privacy-protection-action').addEventListener('click', async () => { const status = await privacyApi?.get?.(); if (!status) return; window.dispatchEvent(new CustomEvent('lets-todo:privacy-configure', { detail: status.enabled ? 'disable' : 'enable' })); });
+  window.addEventListener('lets-todo:privacy-status-changed', refreshPrivacy);
+  async function exportData(kind) {
+    const source = window.letsTodoExports?.[kind]; if (!source || !window.letsTodo?.exportJson) return;
+    $('export-status').textContent = 'Подготавливаем файл…';
+    try { const result = await window.letsTodo.exportJson({ kind, data: source() }); $('export-status').textContent = result.saved ? 'Файл сохранён.' : ''; }
+    catch (error) { $('export-status').textContent = `Не удалось сохранить файл: ${error.message || 'ошибка'}`; }
+  }
+  $('export-tasks').addEventListener('click', () => exportData('tasks'));
+  $('export-statistics').addEventListener('click', () => exportData('statistics'));
+  window.addEventListener('lets-todo:page-shown', event => { if (event.detail === 'settings') { refresh(); refreshPreferences(); refreshPrivacy(); } });
   refresh();
   refreshUpdateInfo();
+  refreshPreferences();
+  refreshPrivacy();
 })();
