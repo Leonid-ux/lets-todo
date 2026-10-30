@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Lets Todo</title>
+  <link rel="icon" href="../assets/app-icon.png"><link rel="stylesheet" href="design-tokens.css"><link rel="stylesheet" href="components.css"><link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <header class="window-titlebar">
+    <div class="window-brand"><img class="window-brand-mark" src="../assets/app-icon.png" alt=""><span>Lets Todo</span></div>
+    <div class="window-controls"><button id="window-minimize" type="button" aria-label="Свернуть">—</button><button id="window-maximize" type="button" aria-label="Развернуть">□</button><button id="window-close" class="window-close" type="button" aria-label="Закрыть">×</button></div>
+  </header>
+  <main class="app-shell">
+    <nav class="main-nav" aria-label="Основные разделы"><button class="active" type="button" data-page="tasks">Задачи</button><button type="button" data-page="habits">Привычки</button><button type="button" data-page="settings">Настройки</button><button type="button" data-page="profile">Профиль</button></nav><button id="active-timer-indicator" class="active-timer-indicator" type="button" hidden></button>
+    <section id="tasks-page" class="app-page">
+      <header class="page-header"><div><p class="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</p><h1>Мои задачи</h1><p id="date-label" class="muted"></p></div><div class="page-header-actions"><button id="open-profile" class="ui-button ui-button--secondary" type="button">Мой профиль</button><button id="clear-completed" class="ui-button ui-button--secondary">Очистить архив</button></div></header>
+      <section class="today-habits"><button id="today-habits-toggle" class="section-toggle" type="button"><span>Привычки сегодня</span><span id="today-habits-summary">0/0</span><span class="section-toggle-arrow">⌃</span></button><div id="today-habits-content"><div id="today-habit-list" class="habit-list"></div><button class="text-link" type="button" data-page="habits">Все привычки →</button></div></section>
+      <form id="quick-add" class="quick-add ui-card"><div id="task-title" class="quick-input task-composer" contenteditable="true" role="textbox" aria-multiline="false" data-placeholder="Что нужно сделать? Например: отправить отчёт завтра утром"></div><button class="ui-button ui-button--primary">Добавить</button></form>
+      <nav class="tabs"><button class="tab active" data-view="active">Активные <b id="active-count">0</b></button><button class="tab" data-view="archive">Архив <b id="archive-count">0</b></button></nav>
+      <section id="task-list" class="task-list" aria-live="polite"></section>
+    </section>
+    <section id="habits-page" class="app-page" hidden>
+      <header class="page-header"><div><p class="eyebrow">ЕЖЕДНЕВНЫЙ РИТМ</p><h1>Привычки</h1><p id="habits-selected-label" class="muted"></p></div><button id="add-habit-entry" class="ui-button ui-button--primary" type="button">Добавить</button></header>
+      <section class="habit-calendar" data-calendar="main"><header><button type="button" data-calendar-nav="prev" aria-label="Назад">←</button><strong data-calendar-label></strong><button type="button" data-calendar-nav="next" aria-label="Вперёд">→</button><button class="calendar-mode" type="button" data-calendar-mode aria-label="Развернуть календарь">⌄</button></header><div class="calendar-weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div><div class="calendar-grid" data-calendar-grid></div></section>
+      <nav class="tabs habit-tabs"><button class="tab active" type="button" data-habit-view="active">Активные <b id="active-habit-count">0</b></button><button class="tab" type="button" data-habit-view="archive">Архив <b id="archived-habit-count">0</b></button></nav>
+      <section id="habit-list-section" class="habit-section"><h2>Привычки</h2><div id="habit-list" class="habit-list"></div></section>
+      <section id="event-list-section" class="habit-section"><h2>События</h2><div id="event-list" class="habit-list"></div></section>
+      <section id="timer-list-section" class="habit-section"><h2>Таймеры</h2><div id="timer-list" class="habit-list"></div></section>
+      <section id="habit-archive-section" class="habit-section" hidden><h2>Архив привычек</h2><div id="habit-archive-list" class="habit-list"></div></section>
+    </section>
+    <section id="habit-detail-page" class="app-page" hidden>
+      <header class="page-header page-header--back"><div><button class="back-link" type="button" data-page="habits">← Привычки</button><p id="habit-detail-kind" class="eyebrow"></p><h1 id="habit-detail-title"></h1><p id="habit-detail-date-label" class="muted"></p></div><button id="edit-habit-entry" class="ui-button ui-button--secondary" type="button">Изменить</button></header>
+      <div id="habit-detail-content"></div>
+      <section class="habit-calendar" data-calendar="detail"><header><button type="button" data-calendar-nav="prev" aria-label="Назад">←</button><strong data-calendar-label></strong><button type="button" data-calendar-nav="next" aria-label="Вперёд">→</button><button class="calendar-mode" type="button" data-calendar-mode aria-label="Развернуть календарь">⌄</button></header><div class="calendar-weekdays"><span>Пн</span><span>Вт</span><span>Ср</span><span>Чт</span><span>Пт</span><span>Сб</span><span>Вс</span></div><div class="calendar-grid" data-calendar-grid></div></section>
+      <footer id="habit-detail-footer" class="habit-detail-footer"></footer>
+    </section>
+    <section id="settings-page" class="app-page" hidden>
+      <header class="page-header"><div><p class="eyebrow">НАСТРОЙКИ</p><h1>Синхронизация устройств</h1><p class="muted">Задачи и привычки передаются напрямую в вашей Wi-Fi-сети без облачных серверов.</p></div></header>
+      <section class="settings-section sync-intro">
+        <div><h2>Подключить Android-устройство</h2><p>Откройте Lets Todo на телефоне и отсканируйте QR-код или введите одноразовый код.</p><span id="sync-service-status" class="sync-service-status">Проверяем локальную сеть…</span></div>
+        <button id="sync-create-offer" class="ui-button ui-button--primary" type="button">Создать код подключения</button>
+      </section>
+      <section id="sync-offer" class="settings-section sync-offer" hidden>
+        <div class="sync-qr-wrap"><img id="sync-qr" alt="QR-код для подключения устройства"></div>
+        <div class="sync-offer-details"><p class="eyebrow">ОДНОРАЗОВЫЙ КОД</p><strong id="sync-code" class="sync-code">—</strong><p id="sync-offer-expiry" class="muted"></p><small>Адрес в локальной сети: <span id="sync-network-address"></span></small><button id="sync-cancel-offer" class="text-link" type="button">Отменить подключение</button></div>
+      </section>
+      <section class="settings-section sync-security"><span class="sync-security-icon">◇</span><div><h2>Защищённое соединение</h2><p>Передача начинается только после подтверждения кода на обоих устройствах. Сеанс шифруется, а предложение подключения автоматически истекает.</p></div></section>
+      <section class="settings-section sync-devices-section"><header><div><h2>Подключённые устройства</h2><p>Здесь появятся только устройства, которые действительно прошли сопряжение.</p></div></header><div id="sync-device-list" class="sync-device-list"></div></section>
+      <section class="settings-section app-update-section"><header><div><p class="eyebrow">ПРИЛОЖЕНИЕ</p><h2>Обновления</h2><p id="update-current-version">Текущая версия: —</p></div><button id="check-for-update" class="ui-button ui-button--secondary" type="button">Проверить обновления</button></header><div id="update-status" class="update-status" aria-live="polite"></div></section>
+    </section>
+    <section id="profile-page" class="app-page" hidden>
+      <header class="page-header page-header--back"><div><button class="back-link" type="button" data-page="tasks">← Мои задачи</button><p class="eyebrow">ПРОФИЛЬ</p><h1>Мой профиль</h1><p class="muted">Личный обзор рабочего ритма</p></div></header>
+      <div class="profile-activity"><div><span id="profile-completed-count" class="profile-metric">0</span><span>выполненных задач за месяц</span></div><div><span id="profile-habit-goals" class="profile-metric">0</span><span>достигнутых дневных целей за месяц</span></div></div>
+      <nav class="profile-links"><button id="open-statistics" type="button"><span>Статистика</span><span>→</span></button><button id="open-settings" type="button"><span>Настройки</span><span>→</span></button><button type="button" data-page="settings"><span>Синхронизация</span><span>→</span></button></nav>
+    </section>
+    <section id="statistics-page" class="app-page" hidden>
+      <header class="page-header page-header--back"><div><button class="back-link" type="button" data-page="profile">← Мой профиль</button><p class="eyebrow">АНАЛИТИКА</p><h1>Статистика</h1></div></header>
+      <nav class="period-switcher" aria-label="Период"><button type="button" data-period="week">Неделя</button><button type="button" class="active" data-period="month">Месяц</button><button type="button" data-period="all">Всё время</button></nav>
+      <section class="stat-section"><h2>Задачи</h2><div class="stat-total"><strong id="stats-tasks-total">0</strong><span>завершено за период</span></div></section>
+      <section class="stat-section"><h2>Привычки</h2><div class="stat-total"><strong id="stats-habit-goals">0</strong><span>дневных целей достигнуто</span></div><div class="regularity-row"><span>Регулярность</span><strong id="stats-regularity">—</strong></div><div class="progress-track"><span id="stats-regularity-progress"></span></div><div id="stats-habit-list" class="habit-stat-list"></div></section>
+      <section class="stat-section"><h2>События</h2><div class="stat-total"><strong id="stats-events-total">0</strong><span>зафиксировано за период</span></div></section>
+    </section>
+  </main>
+  <section id="habit-editor-modal" class="quick-add-modal habit-editor-modal" aria-hidden="true"><div id="habit-editor-content"></div></section>
+  <dialog id="due-dialog" class="due-dialog">
+    <form id="due-form" method="dialog" class="due-dialog-card">
+      <header><div><p class="eyebrow">СРОК ЗАДАЧИ</p><h2>Дата и время</h2></div><button class="dialog-close" value="cancel" type="submit" aria-label="Закрыть">×</button></header>
+      <label>Дата<input id="due-date" class="ui-input" type="date"></label>
+      <label>Время<input id="due-time" class="ui-input" type="time"></label>
+      <footer><button id="due-clear" class="ui-button ui-button--secondary" type="button">Убрать срок</button><button class="ui-button ui-button--primary" value="save" type="submit">Сохранить</button></footer>
+    </form>
+  </dialog>
+  <section id="quick-add-modal" class="quick-add-modal" aria-hidden="true">
+    <div class="quick-add-sheet" role="dialog" aria-modal="true" aria-labelledby="quick-add-title">
+      <header><div><p class="eyebrow">БЫСТРОЕ ДОБАВЛЕНИЕ</p><h2 id="quick-add-title">Новая задача</h2></div><kbd>Esc</kbd></header>
+      <form id="quick-add-modal-form" class="quick-add-modal-form"><div id="quick-task-title" class="quick-input task-composer" contenteditable="true" role="textbox" aria-multiline="false" data-placeholder="Напишите задачу, дату или ссылку…"></div><button class="ui-button ui-button--primary" type="submit">Добавить</button></form>
+      <div class="quick-add-list-header"><span>Активные задачи</span><span id="quick-active-count"></span></div>
+      <div id="quick-task-list" class="quick-task-list"></div>
+    </div>
+  </section>
+  <section id="task-detail-modal" class="quick-add-modal task-detail-modal" aria-hidden="true">
+    <article class="quick-add-sheet task-detail-sheet" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
+      <header><div><p class="eyebrow">КАРТОЧКА ЗАДАЧИ</p><h2 id="task-detail-title">Задача</h2></div><button id="task-detail-close" class="dialog-close" type="button" aria-label="Закрыть">×</button></header>
+      <div id="task-detail-name" class="ui-input task-detail-name task-composer" contenteditable="true" role="textbox" aria-label="Название задачи"></div>
+      <div id="task-detail-progress" class="task-detail-progress">Нет подзадач</div>
+      <section class="task-properties" aria-label="Параметры задачи">
+        <div class="task-property"><span class="task-property-icon">▣</span><span class="task-property-label">Дата</span><button id="task-detail-date" class="task-property-value" type="button">Без даты</button></div>
+        <div class="task-property"><span class="task-property-icon">◷</span><span class="task-property-label">Время</span><span id="task-detail-time" class="task-property-value">Не указано</span></div>
+        <div class="task-property"><span class="task-property-icon">↻</span><span class="task-property-label">Повтор</span><span id="task-repeat-label" class="task-property-value">Не повторяется</span></div>
+        <label class="task-property"><span class="task-property-icon">♢</span><span class="task-property-label">Напомнить</span><select id="task-reminder" class="task-property-select"><option value="0">Не напоминать</option><option value="10">За 10 минут</option><option value="30">За 30 минут</option><option value="60">За 1 час</option></select></label>
+      </section>
+      <section class="subtasks"><h3>Подзадачи</h3><form id="subtask-add-form" class="subtask-add-form"><input id="subtask-title" class="ui-input" maxlength="240" placeholder="Добавить подзадачу"><button class="ui-button ui-button--primary" type="submit">Добавить</button></form><div id="subtask-list" class="subtask-list"></div></section>
+      <footer class="task-detail-footer"><button id="task-detail-delete" class="ui-button ui-button--secondary" type="button">Удалить задачу</button></footer>
+    </article>
+  </section>
+  <dialog id="pair-request-dialog" class="due-dialog pair-request-dialog">
+    <div class="due-dialog-card"><header><div><p class="eyebrow">НОВОЕ УСТРОЙСТВО</p><h2>Подтвердите подключение</h2></div></header><p>Устройство <strong id="pair-device-name"></strong> запрашивает доступ к локальной синхронизации.</p><div class="pair-verification"><span>Сверьте код на телефоне</span><strong id="pair-verification-code">—</strong></div><footer><button id="pair-reject" class="ui-button ui-button--secondary" type="button">Отклонить</button><button id="pair-accept" class="ui-button ui-button--primary" type="button">Коды совпадают</button></footer></div>
+  </dialog>
+  <dialog id="update-dialog" class="due-dialog update-dialog">
+    <div class="due-dialog-card"><header><div><p class="eyebrow">ДОСТУПНО ОБНОВЛЕНИЕ</p><h2 id="update-dialog-title">Новая версия</h2></div><button id="update-dialog-close" class="dialog-close" type="button" aria-label="Закрыть">×</button></header><p id="update-dialog-summary">Посмотрите, что изменится в новой версии.</p><pre id="update-release-notes" class="update-release-notes"></pre><footer><button id="update-later" class="ui-button ui-button--secondary" type="button">Позже</button><button id="update-primary-action" class="ui-button ui-button--primary" type="button">Скачать обновление</button></footer></div>
+  </dialog>
+  <script src="device-sync.js"></script><script src="app.js"></script><script src="habits.js"></script><script src="settings.js"></script>
+</body>
+</html>

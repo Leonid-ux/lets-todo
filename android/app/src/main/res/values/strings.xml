@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Lets Todo</string>
+    <string name="title_activity_main">Lets Todo</string>
+    <string name="package_name">com.letstodo.app</string>
+    <string name="custom_url_scheme">com.letstodo.app</string>
+</resources>

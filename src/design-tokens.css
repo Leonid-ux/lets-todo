@@ -1,0 +1,13 @@
+:root {
+  --font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  --font-xs: 12px; --font-sm: 13px; --font-md: 15px; --font-lg: 18px; --font-xl: 30px;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px; --space-8: 32px;
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 14px; --radius-pill: 999px;
+  --color-bg: #111315; --color-surface: #171a1d; --color-surface-raised: #1e2327; --color-surface-hover: #262c31;
+  --color-border: #2a3035; --color-border-soft: #202529; --color-text: #f0f2f3; --color-text-muted: #8e969d; --color-text-subtle: #606970;
+  --color-accent: #f04444; --color-accent-hover: #ff5757; --color-accent-soft: rgba(240,68,68,.14); --color-success: #6fcf97; --color-danger: #eb5757;
+  --color-date: #f2c94c; --color-date-soft: rgba(242, 201, 76, .13);
+  --color-time: #56ccf2; --color-time-soft: rgba(86, 204, 242, .13);
+  --color-link: #bb8cff; --color-link-soft: rgba(187, 140, 255, .14);
+  --shadow-sm: 0 2px 14px rgba(0,0,0,.24); --transition-fast: 140ms ease;
+}
