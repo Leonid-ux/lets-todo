@@ -39,7 +39,7 @@ const broadcastUpdateState = () => mainWindow?.webContents.send('update-state-ch
 function configureUpdater() {
   if (!app.isPackaged || process.platform !== 'win32') return;
   autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.autoInstallOnAppQuit = false;
   autoUpdater.on('checking-for-update', () => { updateState.status = 'checking'; updateState.error = null; broadcastUpdateState(); });
   autoUpdater.on('update-available', info => { updateState.status = 'available'; updateState.info = info; updateState.error = null; broadcastUpdateState(); });
   autoUpdater.on('update-not-available', () => { updateState.status = 'up-to-date'; updateState.info = null; updateState.error = null; broadcastUpdateState(); });
@@ -145,6 +145,7 @@ app.whenReady().then(() => {
   if (!hasSingleInstanceLock) return;
   configureUpdater();
   createWindow();
+  setTimeout(() => { checkForUpdates(); }, 5000);
   applyTrayPreference();
   syncService = new SyncService({
     userDataPath: app.getPath('userData'),
@@ -210,7 +211,7 @@ ipcMain.handle('update-download', async () => {
 });
 ipcMain.handle('update-install', () => {
   if (updateState.status !== 'downloaded') return false;
-  setImmediate(() => autoUpdater.quitAndInstall());
+  setImmediate(() => autoUpdater.quitAndInstall(true, true));
   return true;
 });
 ipcMain.handle('sync-get-state', () => syncService?.publicState() || { available: false, devices: [], pending: [] });
