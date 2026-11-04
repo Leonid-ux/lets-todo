@@ -61,4 +61,12 @@ Lets Todo — независимый проект, который развива
 
 ## Автор
 
-**Leonid Tsvetkov
+**Leonid Tsvetkov / Lets Design**
+
+[ВКонтакте](https://vk.ru/leonidts) · [Instagram](https://www.instagram.com/leonid.tsv/) · [X](https://x.com/leonid_tsv) · [Telegram](https://t.me/Leonid_ts) · [Сайт](https://leonidts.tilda.ws/)
+
+**Email:** [leonidts@vk.com](mailto:leonidts@vk.com)
+
+---
+
+*Lets Todo — независимый проект для персонального управления задачами и привычками.*
