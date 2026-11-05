@@ -10,6 +10,9 @@
   let detailTaskId = null;
   let currentPage = 'tasks';
   let statsPeriod = 'month';
+  const selectedTaskTags = new Set();
+  let selectedTaskPriority = null;
+  let showHiddenTasks = false;
   const pad = n => String(n).padStart(2, '0');
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; };
   const formatDate = value => new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(`${value}T12:00:00`));
@@ -33,6 +36,7 @@
   };
   const save = () => { localStorage.setItem(storageKey, JSON.stringify(tasks)); window.dispatchEvent(new CustomEvent('lets-todo:data-changed')); };
   const overdue = task => task.dueDate && task.dueDate < today() && !task.completed;
+  const completedToday = task => { if (!task.completed || !task.completedAt) return false; const date = new Date(task.completedAt); return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` === today(); };
   const completionGraceMs = 5000;
   const isCompleting = task => task.completed && task.completedAt && Date.now() - task.completedAt < completionGraceMs;
   const scheduleCompletionRender = task => { if (!task.completedAt) return; setTimeout(render, Math.max(0, completionGraceMs - (Date.now() - task.completedAt) + 40)); };
@@ -290,16 +294,67 @@
     tasks: () => ({ exportedAt: new Date().toISOString(), profile: { name: profile.name, emoji: profile.emoji }, tasks }),
     statistics: () => ({ exportedAt: new Date().toISOString(), periods: Object.fromEntries(['week', 'month', 'all'].map(period => { const bounds = periodBounds(period); const habits = habitStatistics(bounds); return [period, { completedTasks: completedTaskCount(bounds), achievedHabitGoals: habits.reached, habitRegularityPercent: habits.percent, habits: habits.rows.map(row => ({ name: row.name, achievedDays: row.reached, eligibleDays: row.eligibleDays, percent: row.percent })), eventsTotal: eventCount(bounds) }]; })) }),
   };
+  function renderTaskFilters(sourceTasks, visibleCount) {
+    const tags = [...new Set(tasks.flatMap(task => task.tags || []))].sort((left, right) => left.localeCompare(right, 'ru'));
+    $('task-filter-tags').innerHTML = tags.length ? tags.map(tag => `<button class="${selectedTaskTags.has(tag) ? 'active' : ''}" type="button" data-filter-tag="${escape(tag)}">#${escape(tag)}</button>`).join('') : '<span class="task-filter-empty">Меток пока нет</span>';
+    document.querySelectorAll('[data-filter-priority]').forEach(button => button.classList.toggle('active', button.dataset.filterPriority === selectedTaskPriority));
+    const hiddenFilterActive = showHiddenTasks && view === 'active';
+    $('task-filter-show-hidden').checked = hiddenFilterActive;
+    $('task-filter-show-hidden').disabled = view === 'archive';
+    const activeFilters = selectedTaskTags.size + (selectedTaskPriority ? 1 : 0) + (hiddenFilterActive ? 1 : 0);
+    $('task-filter-summary').textContent = activeFilters ? `Показано ${visibleCount} из ${sourceTasks.length}` : 'Выберите одну или несколько меток';
+    $('task-filter-button').classList.toggle('has-filters', Boolean(activeFilters));
+  }
   function render() {
-    const active = tasks.filter(t => !t.completed || isCompleting(t)), archived = tasks.filter(t => t.completed && !isCompleting(t)), visible = view === 'archive' ? archived : active;
-    $('active-count').textContent = active.length; $('archive-count').textContent = archived.length;
-    renderQuickTaskList(active);
+    const openTasks = tasks.filter(task => !task.completed);
+    const active = tasks.filter(task => !task.completed || isCompleting(task) || completedToday(task));
+    const archived = tasks.filter(task => task.completed && !isCompleting(task));
+    const activeWithHidden = [...new Map([...active, ...archived].map(task => [task.id, task])).values()];
+    const sourceTasks = view === 'archive' ? archived : showHiddenTasks ? activeWithHidden : active;
+    const visible = sourceTasks.filter(task => {
+      const matchesTag = !selectedTaskTags.size || (task.tags || []).some(tag => selectedTaskTags.has(tag));
+      const matchesPriority = !selectedTaskPriority || task.priority === selectedTaskPriority;
+      return matchesTag && matchesPriority;
+    });
+    $('active-count').textContent = openTasks.length; $('archive-count').textContent = archived.length;
+    renderQuickTaskList(openTasks);
+    renderTaskFilters(sourceTasks, visible.length);
     if (currentPage === 'profile') renderProfile();
     if (currentPage === 'statistics') renderStatistics();
     document.querySelectorAll('[data-view]').forEach(t => t.classList.toggle('active', t.dataset.view === view));
-    if (!visible.length) { $('task-list').innerHTML = `<div class="empty">${view === 'archive' ? 'Выполненных задач пока нет' : 'Здесь пока нет задач. Добавьте первую сверху.'}</div>`; return; }
-    const groups = new Map(); visible.forEach(t => { const key = t.dueDate || 'Без даты'; if (!groups.has(key)) groups.set(key, []); groups.get(key).push(t); });
-    $('task-list').innerHTML = [...groups].map(([group, groupTasks]) => {
+    if (!visible.length) { $('task-list').innerHTML = `<div class="empty">${selectedTaskTags.size || selectedTaskPriority ? 'По выбранным фильтрам задач нет.' : view === 'archive' ? 'Выполненных задач пока нет' : 'Здесь пока нет задач. Добавьте первую сверху.'}</div>`; return; }
+    const todayKey = today();
+    const groupTasksByTime = groupTasks => [...groupTasks].sort((left, right) => {
+      if (left.completed !== right.completed) return left.completed ? 1 : -1;
+      const leftUndated = !left.dueDate, rightUndated = !right.dueDate;
+      if (leftUndated !== rightUndated) return leftUndated ? 1 : -1;
+      return (left.dueTime || '99:99').localeCompare(right.dueTime || '99:99');
+    });
+    const dateLabel = key => {
+      const date = new Date(`${key}T12:00:00`);
+      const offset = Math.round((date - new Date(`${todayKey}T12:00:00`)) / 86400000);
+      if (offset === 0) return `Сегодня · ${formatTaskDate(key)}`;
+      if (offset === 1) return `Завтра · ${formatTaskDate(key)}`;
+      if (offset === 2) return `Послезавтра · ${formatTaskDate(key)}`;
+      return formatTaskDate(key);
+    };
+    const groups = [];
+    const hiddenTaskIds = new Set(view === 'active' && showHiddenTasks ? visible.filter(task => task.completed && !isCompleting(task) && !completedToday(task)).map(task => task.id) : []);
+    const groupedVisible = visible.filter(task => !hiddenTaskIds.has(task.id));
+    const todayTasks = groupedVisible.filter(task => view === 'active' && completedToday(task) || task.dueDate === todayKey || !task.dueDate);
+    if (todayTasks.length) groups.push({ key: 'today', label: dateLabel(todayKey), tasks: groupTasksByTime(todayTasks) });
+    const remainingVisible = groupedVisible.filter(task => !(view === 'active' && completedToday(task)));
+    const overdueTasks = remainingVisible.filter(task => view === 'active' && overdue(task));
+    if (overdueTasks.length) groups.push({ key: 'overdue', label: 'Просроченные', tasks: groupTasksByTime(overdueTasks).sort((left, right) => right.dueDate.localeCompare(left.dueDate)) });
+    const scheduledDates = [...new Set(remainingVisible.map(task => task.dueDate).filter(date => date && date > todayKey))].sort();
+    scheduledDates.forEach(date => groups.push({ key: date, label: dateLabel(date), tasks: groupTasksByTime(remainingVisible.filter(task => task.dueDate === date)) }));
+    if (view === 'archive') {
+      const pastDates = [...new Set(visible.map(task => task.dueDate).filter(date => date && date < todayKey))].sort().reverse();
+      pastDates.forEach(date => groups.push({ key: date, label: dateLabel(date), tasks: groupTasksByTime(visible.filter(task => task.dueDate === date)) }));
+    }
+    if (hiddenTaskIds.size) groups.push({ key: 'hidden', label: 'Скрытые', tasks: groupTasksByTime(visible.filter(task => hiddenTaskIds.has(task.id))) });
+    $('task-list').innerHTML = groups.map(group => {
+      const groupTasks = group.tasks;
       const rows = groupTasks.map(task => {
         const subtasks = task.subtasks || []; const completedSubtasks = subtasks.filter(item => item.completed).length;
         const subtaskMeta = subtasks.length ? `<span class="subtask-status">☑ ${completedSubtasks}/${subtasks.length} подзадач</span>` : '';
@@ -311,17 +366,28 @@
         const inlineSubtasks = subtasks.length ? `<div class="inline-subtasks">${subtasks.map(subtask => `<label class="inline-subtask ${subtask.completed ? 'is-completed' : ''}" data-subtask-id="${escape(subtask.id)}"><input class="subtask-check" type="checkbox" ${subtask.completed ? 'checked' : ''} aria-label="Выполнить подзадачу"><span>${escape(subtask.title)}</span></label>`).join('')}</div>` : '';
         return `<article class="task ${task.completed ? 'completed' : ''} ${isCompleting(task) ? 'is-completing' : ''}" data-id="${escape(task.id)}" role="button" tabindex="0" title="Нажмите, чтобы открыть карточку"><input class="task-check" type="checkbox" ${task.completed ? 'checked' : ''} aria-label="Выполнить задачу"><div class="task-body"><div class="task-heading"><div class="task-title">${renderTaskText(task.title)}</div>${subtaskMeta}</div>${inlineSubtasks}${taskMeta ? `<div class="task-meta task-schedule">${taskMeta}</div>` : ''}</div></article>`;
       }).join('');
-      return `<div class="section-label">${escape(group === 'Без даты' ? group : formatDate(group))}</div>${rows}`;
+      return `<div class="section-label section-label--${escape(group.key)}"><span>${escape(group.label)}</span><span>${groupTasks.length}</span></div>${rows}`;
     }).join('');
   }
   function renderQuickTaskList(activeTasks) {
     $('quick-active-count').textContent = activeTasks.length;
     $('quick-task-list').innerHTML = activeTasks.length ? activeTasks.slice(0, 8).map(task => `<div class="quick-task-row" data-quick-task-id="${escape(task.id)}"><input class="quick-task-check" type="checkbox" ${task.completed ? 'checked' : ''} aria-label="Выполнить задачу"><span>${renderTaskText(task.title)}</span>${task.dueDate ? `<small>${escape(formatTaskDate(task.dueDate))}${task.dueTime ? ` · ${escape(task.dueTime)}` : ''}</small>` : ''}</div>${(task.subtasks || []).map(subtask => `<label class="quick-subtask-row ${subtask.completed ? 'is-completed' : ''}" data-quick-task-id="${escape(task.id)}" data-quick-subtask-id="${escape(subtask.id)}"><input type="checkbox" ${subtask.completed ? 'checked' : ''}><span>${escape(subtask.title)}</span></label>`).join('')}`).join('') : '<div class="empty">Активных задач нет</div>';
   }
-  $('date-label').textContent = new Intl.DateTimeFormat('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date());
+  $('current-date-heading').textContent = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' }).format(new Date());
+  $('date-label').textContent = new Intl.DateTimeFormat('ru-RU', { weekday: 'long' }).format(new Date());
   $('window-minimize').addEventListener('click', () => window.letsTodo?.minimizeWindow?.());
   $('window-maximize').addEventListener('click', () => window.letsTodo?.toggleMaximizeWindow?.());
   $('window-close').addEventListener('click', () => window.letsTodo?.closeWindow?.());
+  $('task-filter-button').addEventListener('click', event => { const panel = $('task-filter-panel'); panel.hidden = !panel.hidden; event.currentTarget.classList.toggle('active', !panel.hidden); event.currentTarget.setAttribute('aria-expanded', String(!panel.hidden)); });
+  $('task-filter-panel').addEventListener('click', event => {
+    const tagButton = event.target.closest('[data-filter-tag]');
+    if (tagButton) { const tag = tagButton.dataset.filterTag; if (selectedTaskTags.has(tag)) selectedTaskTags.delete(tag); else selectedTaskTags.add(tag); render(); return; }
+    const priorityButton = event.target.closest('[data-filter-priority]');
+    if (priorityButton) { selectedTaskPriority = selectedTaskPriority === priorityButton.dataset.filterPriority ? null : priorityButton.dataset.filterPriority; render(); return; }
+    if (event.target.closest('[data-filter-action="clear"]')) { selectedTaskTags.clear(); selectedTaskPriority = null; showHiddenTasks = false; window.dispatchEvent(new CustomEvent('lets-todo:show-hidden-changed', { detail: false })); render(); }
+  });
+  $('task-filter-show-hidden').addEventListener('change', event => { showHiddenTasks = event.target.checked; window.dispatchEvent(new CustomEvent('lets-todo:show-hidden-changed', { detail: showHiddenTasks })); render(); });
+  window.addEventListener('lets-todo:show-hidden-visibility', event => { if (event.detail !== false || !showHiddenTasks) return; showHiddenTasks = false; render(); });
   $('open-profile').addEventListener('click', () => showPage('profile'));
   $('open-statistics').addEventListener('click', () => showPage('statistics'));
   const profileDialog = $('profile-editor-dialog');
