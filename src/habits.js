@@ -20,6 +20,8 @@
   let habitView = 'active';
   let lastTimerActionAt = 0;
   let privateUnlocked = false;
+  let showHiddenInToday = false;
+  let hiddenUnlockPending = false;
   const calendarState = { main: { month: false, anchor: dateFromKey(selectedDate) }, detail: { month: false, anchor: dateFromKey(selectedDate) } };
 
   function localDateKey(date) { const value = new Date(date); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; }
@@ -99,28 +101,29 @@
     const archivedHabits = habits.filter(entry => entry.archivedAt && Boolean(entry.private) === privateUnlocked);
     const visibleEvents = events.filter(entry => Boolean(entry.private) === privateUnlocked);
     const visibleTimers = timers.filter(entry => Boolean(entry.private) === privateUnlocked);
+    const entries = [...activeHabits.map(entry => ({ entry, render: row })), ...visibleEvents.map(entry => ({ entry, render: row })), ...visibleTimers.map(entry => ({ entry, render: timerRow }))];
     $('habits-page-title').textContent = privateUnlocked ? 'Личные' : 'Привычки'; $('habits-selected-label').textContent = dateLabel(selectedDate);
     $('open-private-entries').hidden = privateUnlocked; $('close-private-entries').hidden = !privateUnlocked;
     $('active-habit-count').textContent = activeHabits.length;
     $('archived-habit-count').textContent = archivedHabits.length;
-    $('habit-list-section').hidden = habitView !== 'active'; $('event-list-section').hidden = habitView !== 'active'; $('habit-archive-section').hidden = habitView !== 'archive';
+    $('habit-list-section').hidden = habitView !== 'active'; $('habit-archive-section').hidden = habitView !== 'archive';
     document.querySelectorAll('[data-habit-view]').forEach(button => button.classList.toggle('active', button.dataset.habitView === habitView));
-    $('habit-list').innerHTML = activeHabits.length ? activeHabits.map(row).join('') : '<div class="stats-empty">Пока нет привычек</div>';
-    $('event-list').innerHTML = visibleEvents.length ? visibleEvents.map(row).join('') : '<div class="stats-empty">Пока нет событий</div>';
-    $('timer-list').innerHTML = visibleTimers.length ? visibleTimers.map(entry => timerRow(entry)).join('') : '<div class="stats-empty">Пока нет таймеров</div>';
+    $('habit-list').innerHTML = entries.length ? entries.map(({ entry, render }) => render(entry)).join('') : '<div class="stats-empty">Пока нет записей</div>';
     $('habit-archive-list').innerHTML = archivedHabits.length ? archivedHabits.map(archiveRow).join('') : '<div class="stats-empty">Архив привычек пуст</div>';
   }
   function renderToday() {
     const today = localDateKey(new Date());
-    const activeHabits = habits.filter(entry => !entry.archivedAt && !entry.private);
-    document.querySelector('.today-habits').hidden = activeHabits.length + timers.length === 0;
+    const canShowPrivate = showHiddenInToday && privateUnlocked;
+    const activeHabits = habits.filter(entry => !entry.archivedAt && (!entry.private || canShowPrivate));
+    const visibleTimers = timers.filter(entry => !entry.private || canShowPrivate);
+    document.querySelector('.today-habits').hidden = activeHabits.length + visibleTimers.length === 0;
     const done = activeHabits.filter(entry => countFor(entry.id, today) >= entry.goal).length;
     $('today-habits-summary').textContent = `${done}/${activeHabits.length}`;
     const todayRows = activeHabits.map(entry => {
       const count = countFor(entry.id, today); const completed = count >= entry.goal;
       return `<div class="habit-row ${completed ? 'completed' : ''}" data-entry-id="${escape(entry.id)}" data-today-habit><button class="habit-check" type="button" data-count-change="1" style="--entry-color:${escape(entry.color)}"></button><button class="habit-name" type="button" data-open-entry>${escape(entry.name)}</button><span class="habit-count">${count}/${entry.goal}</span><button class="habit-minus" type="button" data-count-change="-1" ${count ? '' : 'disabled'}>−</button></div>`;
     });
-    const timerRows = timers.filter(entry => !entry.private).map(entry => timerRow(entry, today, true));
+    const timerRows = visibleTimers.map(entry => timerRow(entry, today, true));
     $('today-habit-list').innerHTML = [...todayRows, ...timerRows].length ? [...todayRows, ...timerRows].join('') : '<div class="stats-empty">Добавьте первую привычку или таймер</div>';
     renderActiveTimer();
   }
@@ -170,8 +173,6 @@
     const change = event.target.closest('[data-count-change]'); if (change) changeCount(row.dataset.entryId, Number(change.dataset.countChange), row.hasAttribute('data-today-habit') ? localDateKey(new Date()) : selectedDate);
   }
   $('habit-list').addEventListener('click', listClick);
-  $('event-list').addEventListener('click', listClick);
-  $('timer-list').addEventListener('click', listClick);
   $('habit-archive-list').addEventListener('click', event => { const row = event.target.closest('[data-entry-id]'); if (!row) return; const entry = findEntry(row.dataset.entryId); if (!entry) return; if (event.target.closest('[data-restore-entry]')) { entry.archivedAt = null; saveDefinitions(); renderAll(); notifyChange(); return; } if (event.target.closest('[data-open-entry]')) navigateDetail(entry.id); });
   $('today-habit-list').addEventListener('click', listClick);
   document.querySelectorAll('[data-habit-view]').forEach(button => button.addEventListener('click', () => { habitView = button.dataset.habitView; renderLists(); }));
@@ -192,7 +193,7 @@
     const type = entry?.type || editorType;
     const typeName = type === 'habit' ? 'Привычка' : type === 'event' ? 'Событие' : 'Таймер';
     const typeTabs = ['habit', 'event', 'timer'].map(value => `<button type="button" data-entry-type="${value}" ${entry ? 'disabled' : ''}>${value === 'habit' ? 'Привычка' : value === 'event' ? 'Событие' : 'Таймер'}</button>`).join('');
-    editorContent.innerHTML = `<form id="habit-editor-form" class="quick-add-sheet habit-editor-sheet"><header><div><p class="eyebrow">${entry ? 'ИЗМЕНЕНИЕ ЗАПИСИ' : 'НОВАЯ ЗАПИСЬ'}</p><h2 id="habit-editor-heading">${entry ? 'Изменить' : typeName}</h2></div><button class="dialog-close" data-editor-close type="button" aria-label="Закрыть">×</button></header><div class="habit-type-switch">${typeTabs}</div><div class="habit-editor-fields"><label class="habit-form-field"><span>Название</span><input id="habit-name" class="ui-input" maxlength="80" value="${escape(entry?.name || '')}" required></label><fieldset class="habit-colors"><legend>Цвет</legend><div id="habit-color-options"></div></fieldset><label id="habit-goal-field" class="habit-form-field"><span>Количество в день</span><input id="habit-goal" class="ui-input" type="number" min="1" max="99" value="${entry?.goal || 1}" required></label><label class="privacy-option"><span>Личная запись<br><small>Скрыть из общего списка и календаря</small></span><input id="habit-private" type="checkbox" ${entry?.private || (!entry && privateUnlocked) ? 'checked' : ''}></label></div><footer><button class="ui-button ui-button--primary" type="submit">Сохранить</button></footer></form>`;
+    editorContent.innerHTML = `<form id="habit-editor-form" class="quick-add-sheet habit-editor-sheet"><header><div><p class="eyebrow">${entry ? 'ИЗМЕНЕНИЕ ЗАПИСИ' : 'НОВАЯ ЗАПИСЬ'}</p><h2 id="habit-editor-heading">${entry ? 'Изменить' : typeName}</h2></div><button class="dialog-close" data-editor-close type="button" aria-label="Закрыть">×</button></header><div class="habit-editor-fields"><fieldset class="habit-type-field"><legend>Тип записи</legend><div class="habit-type-switch">${typeTabs}</div></fieldset><label class="habit-form-field"><span>Название</span><input id="habit-name" class="ui-input" maxlength="80" value="${escape(entry?.name || '')}" required></label><fieldset class="habit-colors"><legend>Цвет</legend><div id="habit-color-options"></div></fieldset><label id="habit-goal-field" class="habit-form-field"><span>Количество в день</span><input id="habit-goal" class="ui-input" type="number" min="1" max="99" value="${entry?.goal || 1}" required></label><label class="privacy-option"><span>Личная запись<br><small>Скрыть из общего списка и календаря</small></span><input id="habit-private" type="checkbox" ${entry?.private || (!entry && privateUnlocked) ? 'checked' : ''}></label></div><footer><button class="ui-button ui-button--primary" type="submit">Сохранить</button></footer></form>`;
     renderColors(); setEditorType(type); setTimeout(() => $('habit-name').focus(), 40);
   }
   function openEditor(entry = null) {
@@ -204,7 +205,7 @@
   const privacyModal = $('privacy-modal');
   const privacyContent = $('privacy-modal-content');
   let privacyMode = 'open';
-  const closePrivacyModal = () => { privacyModal.classList.remove('is-open'); privacyModal.setAttribute('aria-hidden', 'true'); };
+  const closePrivacyModal = () => { privacyModal.classList.remove('is-open'); privacyModal.setAttribute('aria-hidden', 'true'); if (hiddenUnlockPending && !privateUnlocked) { hiddenUnlockPending = false; showHiddenInToday = false; window.dispatchEvent(new CustomEvent('lets-todo:show-hidden-visibility', { detail: false })); renderToday(); } };
   async function openPrivateEntries(allowWithoutPin = false) {
     const status = await window.letsTodo?.privacy?.get?.();
     if (!status?.hasPin) { if (allowWithoutPin) { privateUnlocked = true; renderAll(); } else openPrivacyModal('setup'); return; }
@@ -222,7 +223,7 @@
   privacyModal.addEventListener('click', event => { if (event.target === privacyModal || event.target.closest('[data-privacy-close]')) closePrivacyModal(); });
   privacyModal.addEventListener('submit', async event => {
     if (event.target.id !== 'privacy-form') return; event.preventDefault(); const pin = $('privacy-pin')?.value || '';
-    if (privacyMode === 'open') { if (await verifyCurrent()) { privateUnlocked = true; closePrivacyModal(); renderAll(); } return; }
+    if (privacyMode === 'open') { if (await verifyCurrent()) { privateUnlocked = true; hiddenUnlockPending = false; closePrivacyModal(); renderAll(); } return; }
     if ((privacyMode === 'change' || privacyMode === 'disable' || privacyMode === 'enable') && !(await verifyCurrent())) return;
     if (privacyMode === 'disable' || privacyMode === 'enable') { await window.letsTodo?.privacy?.setEnabled?.(privacyMode === 'enable'); closePrivacyModal(); window.dispatchEvent(new CustomEvent('lets-todo:privacy-status-changed')); return; }
     if (!/^\d{4,6}$/.test(pin) || pin !== $('privacy-pin-confirm').value) { $('privacy-error').textContent = 'Введите одинаковый PIN из 4–6 цифр.'; return; }
@@ -230,9 +231,10 @@
     closePrivacyModal(); privateUnlocked = true; renderAll(); window.dispatchEvent(new CustomEvent('lets-todo:privacy-status-changed'));
   });
   $('open-private-entries').addEventListener('click', openPrivateEntries);
-  $('close-private-entries').addEventListener('click', () => { privateUnlocked = false; detailId = null; renderAll(); window.dispatchEvent(new CustomEvent('lets-todo:navigate', { detail: 'habits' })); });
-  window.addEventListener('lets-todo:privacy-lock', () => { if (!privateUnlocked) return; privateUnlocked = false; detailId = null; closeEditor(); closePrivacyModal(); renderAll(); });
+  $('close-private-entries').addEventListener('click', () => { privateUnlocked = false; showHiddenInToday = false; hiddenUnlockPending = false; detailId = null; renderAll(); window.dispatchEvent(new CustomEvent('lets-todo:show-hidden-visibility', { detail: false })); window.dispatchEvent(new CustomEvent('lets-todo:navigate', { detail: 'habits' })); });
+  window.addEventListener('lets-todo:privacy-lock', () => { if (!privateUnlocked && !showHiddenInToday) return; privateUnlocked = false; showHiddenInToday = false; hiddenUnlockPending = false; detailId = null; closeEditor(); closePrivacyModal(); renderAll(); window.dispatchEvent(new CustomEvent('lets-todo:show-hidden-visibility', { detail: false })); });
   window.addEventListener('lets-todo:privacy-configure', event => event.detail === 'enter' ? openPrivateEntries(true) : openPrivacyModal(event.detail));
+  window.addEventListener('lets-todo:show-hidden-changed', async event => { showHiddenInToday = Boolean(event.detail); if (!showHiddenInToday) { hiddenUnlockPending = false; renderToday(); return; } if (privateUnlocked) { renderToday(); return; } hiddenUnlockPending = true; await openPrivateEntries(true); if (privateUnlocked) hiddenUnlockPending = false; renderToday(); });
   $('add-habit-entry').addEventListener('click', () => openEditor());
   $('edit-habit-entry').addEventListener('click', () => { const entry = findEntry(detailId); if (entry) openEditor(entry); });
   modal.addEventListener('click', event => { if (event.target === modal || event.target.closest('[data-editor-close]')) { closeEditor(); return; } const type = event.target.closest('[data-entry-type]'); if (type && !type.disabled) { setEditorType(type.dataset.entryType); return; } const color = event.target.closest('[data-color]'); if (color) { editorColor = color.dataset.color; renderColors(); } });

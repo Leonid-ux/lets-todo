@@ -9,9 +9,13 @@ let quickAddWindow = null;
 let mainWindow = null;
 let syncService = null;
 let tray = null;
+let isQuitting = false;
 const syncReplies = new Map();
 const appIcon = path.join(__dirname, 'assets', 'app-icon.png');
-if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'lets-todo-dev'));
+if (!app.isPackaged) {
+  const profile = process.argv.includes('--isolated-profile') ? 'lets-todo-dev' : 'lets-todo';
+  app.setPath('userData', path.join(app.getPath('appData'), profile));
+}
 const preferencesPath = path.join(app.getPath('userData'), 'preferences.json');
 const defaultPreferences = { notificationsEnabled: true, minimizeToTray: false };
 const readPreferences = () => { try { return { ...defaultPreferences, ...JSON.parse(fs.readFileSync(preferencesPath, 'utf8')) }; } catch (_) { return { ...defaultPreferences }; } };
@@ -79,7 +83,11 @@ function createWindow() {
     },
   });
   mainWindow = window;
-  window.on('minimize', event => { if (!preferences.minimizeToTray) return; event.preventDefault(); window.hide(); });
+  window.on('close', event => {
+    if (isQuitting || !preferences.minimizeToTray) return;
+    event.preventDefault();
+    window.hide();
+  });
   window.on('closed', () => { if (mainWindow === window) mainWindow = null; });
   window.loadFile(path.join(__dirname, 'src', 'index.html'));
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -223,5 +231,6 @@ ipcMain.handle('sync-message-response', (_event, requestId, response) => {
   const complete = syncReplies.get(String(requestId)); if (!complete) return false;
   syncReplies.delete(String(requestId)); complete(response); return true;
 });
+app.on('before-quit', () => { isQuitting = true; });
 app.on('will-quit', () => { globalShortcut.unregisterAll(); syncService?.stop(); tray?.destroy(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
