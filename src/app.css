@@ -61,6 +61,155 @@ h1 { margin: 0; font-size: var(--font-xl); letter-spacing: -.035em; }
 .data-export-section > header, .settings-subheading { margin-bottom: var(--space-3); }.export-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-4); }.profile-heading { display: flex; align-items: center; gap: var(--space-4); }.profile-avatar { display: grid; width: 64px; height: 64px; flex: 0 0 auto; place-items: center; border: 1px solid var(--color-border); border-radius: 50%; background: var(--color-surface-raised); font-size: 32px; }.profile-heading .eyebrow { margin-bottom: var(--space-1); }.emoji-picker { margin: var(--space-5) 0 0; border: 0; padding: 0; }.emoji-picker legend { margin-bottom: var(--space-3); color: var(--color-text-muted); font-size: var(--font-sm); }.emoji-picker div { display: grid; grid-template-columns: repeat(6, 42px); gap: var(--space-2); }.emoji-picker button { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-bg); font-size: 22px; cursor: pointer; }.emoji-picker button:hover, .emoji-picker button.selected { border-color: var(--color-accent); background: var(--color-surface-raised); }.profile-editor-dialog { width: min(460px, calc(100vw - 32px)); }.profile-editor-dialog label { margin-top: var(--space-5); }
 @media (max-width: 680px) { .profile-heading { align-items: flex-start; }.profile-avatar { width: 52px; height: 52px; font-size: 26px; }.emoji-picker div { grid-template-columns: repeat(6, minmax(36px, 1fr)); }.emoji-picker button { width: 100%; }.export-actions .ui-button { flex: 1; } }
 
+/* Task creation and the always-visible Today section. */
+.today-empty {
+  display: grid;
+  min-height: 74px;
+  place-items: center start;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-sm);
+}
+.day-add-task {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: var(--space-3);
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  padding: 0 2px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: var(--font-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.day-add-task span {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  color: var(--color-text);
+  font-size: 20px;
+  line-height: 1;
+}
+.day-add-task:hover { color: var(--color-text); }
+.day-add-task:hover span { border-color: var(--color-accent); color: var(--color-accent); }
+
+#tasks-page #quick-add .quick-add-draft {
+  display: grid;
+  min-width: 0;
+  flex: 1 1 auto;
+  align-content: center;
+}
+#tasks-page #quick-add.has-draft { border-radius: 22px; }
+#tasks-page #quick-add.has-draft .quick-input { min-height: 30px; line-height: 26px; }
+.task-draft-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 2px var(--space-2);
+  padding: 0 0 5px;
+  font-size: var(--font-xs);
+  line-height: 18px;
+}
+.task-draft-meta[hidden] { display: none; }
+.draft-date { color: var(--color-text-muted); }
+.draft-time { color: var(--color-time); }
+.draft-priority--urgent, .draft-tag { color: var(--color-danger); }
+.draft-priority--important { color: var(--color-warm); }
+.draft-priority--not-urgent { color: var(--color-text-muted); }
+#tasks-page #quick-add .quick-add-send {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  color: #fff;
+  font-size: 15px;
+  line-height: 1;
+  transform: rotate(-45deg);
+}
+#tasks-page #quick-add.has-draft .quick-add-plus { display: none; }
+#tasks-page #quick-add.has-draft .quick-add-send { display: flex; }
+
+body:not(.quick-window) #quick-add-modal {
+  z-index: 60;
+  place-items: stretch;
+  padding: 0;
+  background: var(--color-bg);
+}
+body:not(.quick-window) #quick-add-modal .quick-add-sheet {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  flex-direction: column;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  padding: 32px max(32px, calc((100vw - 760px) / 2));
+  background: var(--color-bg);
+  transform: translateY(12px);
+}
+body:not(.quick-window) #quick-add-modal.is-open .quick-add-sheet { transform: none; }
+body:not(.quick-window) #quick-add-modal .quick-add-modal-form {
+  display: flex;
+  flex: 1;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 0;
+  margin: var(--space-8) 0 0;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+}
+body:not(.quick-window) #quick-add-modal .quick-add-modal-form .task-composer {
+  min-height: 76px;
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 0 20px;
+  font-size: 24px;
+  line-height: 34px;
+}
+.full-add-properties { display: grid; gap: 0; margin-top: var(--space-5); }
+.full-add-properties label {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr);
+  align-items: center;
+  min-height: 52px;
+  border-bottom: 1px solid var(--color-border-soft);
+  color: var(--color-text-muted);
+}
+.full-add-properties .task-property-input,
+.full-add-properties .task-property-select { justify-self: start; }
+body:not(.quick-window) #quick-add-modal .quick-add-modal-form footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-5);
+}
+body:not(.quick-window) #quick-add-modal .quick-add-modal-form footer .ui-button { min-width: 180px; }
+body:not(.quick-window) #quick-add-modal .quick-add-list-header,
+body:not(.quick-window) #quick-add-modal .quick-task-list { display: none; }
+.quick-window #quick-add-modal .full-add-properties { display: none; }
+.quick-window #quick-add-modal .quick-add-modal-form footer { display: contents; }
+
+@media (max-width: 680px) {
+  body:not(.quick-window) #quick-add-modal .quick-add-sheet { padding: 20px; }
+  body:not(.quick-window) #quick-add-modal .quick-add-modal-form { margin-top: var(--space-6); }
+  body:not(.quick-window) #quick-add-modal .quick-add-modal-form .task-composer { font-size: 20px; line-height: 30px; }
+  .full-add-properties label { grid-template-columns: 96px minmax(0, 1fr); }
+  body:not(.quick-window) #quick-add-modal .quick-add-modal-form footer .ui-button { width: 100%; }
+}
+
 /* Unified Figma layout: same visual hierarchy on web and mobile. */
 html, body { background: var(--color-bg); }
 .window-titlebar { border-color: var(--color-border); background: var(--color-bg); }

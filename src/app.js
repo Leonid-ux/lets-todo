@@ -204,13 +204,14 @@
     };
     return [...fragment.childNodes].map(read).join('').replace(/\s+/g, ' ').trim() || plainText;
   };
-  const pastePlainTextOnly = target => target.addEventListener('paste', event => {
+  const pastePlainTextOnly = (target, tokenize = true, afterPaste = null) => target.addEventListener('paste', event => {
     const items = [...(event.clipboardData?.items || [])];
     if (items.some(item => item.type.startsWith('image/'))) { event.preventDefault(); return; }
     const text = clipboardTextWithLinks(event.clipboardData);
     event.preventDefault();
     document.execCommand('insertText', false, text);
-    tokenizeComposer(target, true);
+    if (tokenize) tokenizeComposer(target, true);
+    afterPaste?.();
   });
   const readStoredList = keys => {
     for (const key of keys) {
@@ -322,7 +323,7 @@
     if (currentPage === 'profile') renderProfile();
     if (currentPage === 'statistics') renderStatistics();
     document.querySelectorAll('[data-view]').forEach(t => t.classList.toggle('active', t.dataset.view === view));
-    if (!visible.length) { $('task-list').innerHTML = `<div class="empty">${selectedTaskTags.size || selectedTaskPriority ? 'По выбранным фильтрам задач нет.' : view === 'archive' ? 'Выполненных задач пока нет' : 'Здесь пока нет задач. Добавьте первую сверху.'}</div>`; return; }
+    if (!visible.length && view === 'archive') { $('task-list').innerHTML = `<div class="empty">${selectedTaskTags.size || selectedTaskPriority ? 'По выбранным фильтрам задач нет.' : 'Выполненных задач пока нет'}</div>`; return; }
     const todayKey = today();
     const groupTasksByTime = groupTasks => [...groupTasks].sort((left, right) => {
       if (left.completed !== right.completed) return left.completed ? 1 : -1;
@@ -341,9 +342,11 @@
     const groups = [];
     const hiddenTaskIds = new Set(view === 'active' && showHiddenTasks ? visible.filter(task => task.completed && !isCompleting(task) && !completedToday(task)).map(task => task.id) : []);
     const groupedVisible = visible.filter(task => !hiddenTaskIds.has(task.id));
-    const todayTasks = groupedVisible.filter(task => view === 'active' && completedToday(task) || task.dueDate === todayKey || !task.dueDate);
-    if (todayTasks.length) groups.push({ key: 'today', label: dateLabel(todayKey), tasks: groupTasksByTime(todayTasks) });
-    const remainingVisible = groupedVisible.filter(task => !(view === 'active' && completedToday(task)));
+    const belongsToToday = task => task.dueDate === todayKey || !task.dueDate || (view === 'active' && completedToday(task) && task.dueDate < todayKey);
+    const todayTasks = groupedVisible.filter(belongsToToday);
+    const todayTaskIds = new Set(todayTasks.map(task => task.id));
+    if (todayTasks.length || view === 'active') groups.push({ key: 'today', label: dateLabel(todayKey), tasks: groupTasksByTime(todayTasks) });
+    const remainingVisible = groupedVisible.filter(task => !todayTaskIds.has(task.id));
     const overdueTasks = remainingVisible.filter(task => view === 'active' && overdue(task));
     if (overdueTasks.length) groups.push({ key: 'overdue', label: 'Просроченные', tasks: groupTasksByTime(overdueTasks).sort((left, right) => right.dueDate.localeCompare(left.dueDate)) });
     const scheduledDates = [...new Set(remainingVisible.map(task => task.dueDate).filter(date => date && date > todayKey))].sort();
@@ -364,9 +367,11 @@
         const tagMeta = (task.tags || []).map(tag => `<span class="task-tag">#${escape(tag)}</span>`).join('');
         const taskMeta = `${dueMeta}${priorityMeta}${tagMeta}`;
         const inlineSubtasks = subtasks.length ? `<div class="inline-subtasks">${subtasks.map(subtask => `<label class="inline-subtask ${subtask.completed ? 'is-completed' : ''}" data-subtask-id="${escape(subtask.id)}"><input class="subtask-check" type="checkbox" ${subtask.completed ? 'checked' : ''} aria-label="Выполнить подзадачу"><span>${escape(subtask.title)}</span></label>`).join('')}</div>` : '';
-        return `<article class="task ${task.completed ? 'completed' : ''} ${isCompleting(task) ? 'is-completing' : ''}" data-id="${escape(task.id)}" role="button" tabindex="0" title="Нажмите, чтобы открыть карточку"><input class="task-check" type="checkbox" ${task.completed ? 'checked' : ''} aria-label="Выполнить задачу"><div class="task-body"><div class="task-heading"><div class="task-title">${renderTaskText(task.title)}</div>${subtaskMeta}</div>${inlineSubtasks}${taskMeta ? `<div class="task-meta task-schedule">${taskMeta}</div>` : ''}</div></article>`;
+        return `<article class="task ${task.completed ? 'completed' : ''}" data-id="${escape(task.id)}" role="button" tabindex="0" title="Нажмите, чтобы открыть карточку"><input class="task-check" type="checkbox" ${task.completed ? 'checked' : ''} aria-label="Выполнить задачу"><div class="task-body"><div class="task-heading"><div class="task-title">${renderTaskText(task.title)}</div>${subtaskMeta}</div>${inlineSubtasks}${taskMeta ? `<div class="task-meta task-schedule">${taskMeta}</div>` : ''}</div></article>`;
       }).join('');
-      return `<div class="section-label section-label--${escape(group.key)}"><span>${escape(group.label)}</span><span>${groupTasks.length}</span></div>${rows}`;
+      const emptyToday = group.key === 'today' && !rows ? '<div class="today-empty">Сегодня задач нет</div>' : '';
+      const addToday = group.key === 'today' && view === 'active' ? '<button class="day-add-task" type="button" data-add-task aria-label="Добавить задачу на сегодня"><span>+</span> Добавить задачу</button>' : '';
+      return `<div class="section-label section-label--${escape(group.key)}"><span>${escape(group.label)}</span><span>${groupTasks.length}</span></div>${rows}${emptyToday}${addToday}`;
     }).join('');
   }
   function renderQuickTaskList(activeTasks) {
@@ -401,15 +406,30 @@
   window.addEventListener('lets-todo:navigate', event => showPage(event.detail));
   document.querySelectorAll('[data-period]').forEach(button => button.addEventListener('click', () => { statsPeriod = button.dataset.period; document.querySelectorAll('[data-period]').forEach(item => item.classList.toggle('active', item === button)); renderStatistics(); }));
   $('open-settings').addEventListener('click', () => showPage('settings'));
-  composer.addEventListener('input', () => tokenizeComposer(composer));
-  pastePlainTextOnly(composer);
+  const renderDraftPreview = () => {
+    const raw = composerValue(composer).trim();
+    const preview = $('task-draft-meta');
+    $('quick-add').classList.toggle('has-draft', Boolean(raw));
+    if (!raw) { preview.hidden = true; preview.innerHTML = ''; return; }
+    const parsed = parseNaturalDate(raw);
+    const priorityLabels = { urgent: 'Срочно', important: 'Важно', 'not-urgent': 'Не срочно' };
+    const parts = [];
+    if (parsed.dueDate) parts.push(`<span class="draft-date">▣ ${escape(formatTaskDate(parsed.dueDate))}</span>`);
+    if (parsed.dueTime) parts.push(`<span class="draft-time">◷ ${escape(parsed.dueTime)}</span>`);
+    if (parsed.priority) parts.push(`<span class="draft-priority draft-priority--${escape(parsed.priority)}">!${escape(priorityLabels[parsed.priority])}</span>`);
+    (parsed.tags || []).forEach(tag => parts.push(`<span class="draft-tag">#${escape(tag)}</span>`));
+    preview.innerHTML = parts.join('');
+    preview.hidden = !parts.length;
+  };
+  composer.addEventListener('input', renderDraftPreview);
+  pastePlainTextOnly(composer, false, renderDraftPreview);
   composer.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); openCreatedTask = event.ctrlKey; $('quick-add').requestSubmit(); } });
   const createTask = (rawTitle, afterCreate) => { const parsed = parseNaturalDate(rawTitle); const title = parsed.title || rawTitle; const task = { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, title, dueDate: parsed.dueDate || null, dueTime: parsed.dueTime || null, endTime: parsed.endTime || null, recurrence: parsed.recurrence || null, priority: parsed.priority || null, tags: parsed.tags || [], reminderMinutes: parsed.dueTime ? 10 : 0, completed: false, createdAt: Date.now(), subtasks: [] }; tasks.push(task); save(); render(); afterCreate?.(task); return task; };
-  $('quick-add').addEventListener('submit', event => { event.preventDefault(); const rawTitle = composerValue(composer).trim(); if (!rawTitle) return composer.focus(); const shouldOpen = openCreatedTask; openCreatedTask = false; createTask(rawTitle, task => { composer.innerHTML = ''; if (shouldOpen) openTaskDetail(task, true); else composer.focus(); }); });
+  $('quick-add').addEventListener('submit', event => { event.preventDefault(); const rawTitle = composerValue(composer).trim(); if (!rawTitle) { openQuickAdd(today()); return; } const shouldOpen = openCreatedTask; openCreatedTask = false; createTask(rawTitle, task => { composer.innerHTML = ''; renderDraftPreview(); if (shouldOpen) openTaskDetail(task, true); else composer.focus(); }); });
   quickComposer.addEventListener('input', () => tokenizeComposer(quickComposer));
   pastePlainTextOnly(quickComposer);
   quickComposer.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); openCreatedTask = event.ctrlKey; $('quick-add-modal-form').requestSubmit(); } });
-  $('quick-add-modal-form').addEventListener('submit', event => { event.preventDefault(); const rawTitle = composerValue(quickComposer).trim(); if (!rawTitle) return quickComposer.focus(); const shouldOpen = openCreatedTask; openCreatedTask = false; createTask(rawTitle, task => { quickComposer.innerHTML = ''; if (shouldOpen) openTaskDetail(task, true); else quickComposer.focus(); }); });
+  $('quick-add-modal-form').addEventListener('submit', event => { event.preventDefault(); const rawTitle = composerValue(quickComposer).trim(); if (!rawTitle) return quickComposer.focus(); const explicitDate = $('quick-add-date').value; const explicitTime = $('quick-add-time').value; const reminderMinutes = Number($('quick-add-reminder').value) || 0; createTask(rawTitle, task => { if (explicitDate) task.dueDate = explicitDate; if (explicitTime) { task.dueTime = explicitTime; task.dueDate ||= today(); } task.reminderMinutes = reminderMinutes; quickComposer.innerHTML = ''; save(); render(); closeQuickAdd(); }); });
   document.querySelectorAll('[data-view]').forEach(tab => tab.addEventListener('click', () => { view = tab.dataset.view; render(); }));
   $('clear-completed').addEventListener('click', () => { if (!tasks.some(t => t.completed)) return; if (confirm('Удалить все выполненные задачи из архива?')) { tasks = tasks.filter(t => !t.completed); save(); render(); } });
   $('task-list').addEventListener('change', event => {
@@ -461,9 +481,11 @@
   $('task-list').addEventListener('keydown', event => { if (event.key !== 'Enter' && event.key !== ' ') return; const row = event.target.closest('[data-id]'); if (!row || event.target.closest('[data-action]')) return; event.preventDefault(); const task = tasks.find(t => t.id === row.dataset.id); if (task) openTaskDetail(task); });
   $('task-list').addEventListener('click', event => { const action = event.target.closest('[data-action]')?.dataset.action, row = event.target.closest('[data-id]'); if (!action || !row) return; const task = tasks.find(t => t.id === row.dataset.id); if (!task) return; if (action === 'date') openDueDialog(task); if (action === 'delete' && confirm(`Удалить задачу «${task.title}»?`)) { tasks = tasks.filter(t => t.id !== task.id); save(); render(); } });
   const quickAddModal = $('quick-add-modal');
-  const openQuickAdd = () => { quickAddModal.classList.add('is-open'); quickAddModal.setAttribute('aria-hidden', 'false'); setTimeout(() => quickComposer.focus(), 80); };
+  const openQuickAdd = (date = today()) => { $('quick-add-date').value = date || ''; $('quick-add-time').value = ''; $('quick-add-reminder').value = '0'; quickAddModal.classList.add('is-open'); quickAddModal.setAttribute('aria-hidden', 'false'); setTimeout(() => quickComposer.focus(), 80); };
   const closeQuickAdd = () => { if (!quickAddModal.classList.contains('is-open')) return; quickAddModal.classList.remove('is-open'); quickAddModal.setAttribute('aria-hidden', 'true'); window.letsTodo?.closeQuickAdd?.(); };
   quickAddModal.addEventListener('click', event => { if (event.target === quickAddModal) closeQuickAdd(); });
+  $('quick-add-close').addEventListener('click', closeQuickAdd);
+  $('task-list').addEventListener('click', event => { if (event.target.closest('[data-add-task]')) openQuickAdd(today()); });
   $('quick-task-list').addEventListener('change', event => {
     const row = event.target.closest('[data-quick-task-id]'); if (!row) return;
     const task = tasks.find(item => item.id === row.dataset.quickTaskId); if (!task) return;
